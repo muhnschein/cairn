@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/zimfmt",
+    "crates/archive",
+    "crates/api",
+    "crates/sandbox",
+    "crates/cairnd",
+    "crates/cairn",
+    "crates/testutil",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "ISC"
+repository = "https://github.com/muhnschein/cairn"
+publish = false
+
+[workspace.dependencies]
+zimfmt = { path = "crates/zimfmt" }
+archive = { path = "crates/archive" }
+api = { path = "crates/api" }
+sandbox = { path = "crates/sandbox" }
+testutil = { path = "crates/testutil" }
+
+libc = { version = "0.2.189", default-features = false, features = ["std"] }
+lzma-rs = { version = "0.3.0", default-features = false }
+memmap2 = { version = "0.9.11", default-features = false }
+ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+[profile.release]
+panic = "unwind"
+overflow-checks = true
+debug = 1

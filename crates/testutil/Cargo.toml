@@ -1,0 +1,20 @@
+[package]
+name = "testutil"
+description = "Crafts ZIM archives for tests. Never a dependency of cairnd or cairn."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lzma-rs.workspace = true
+ruzstd.workspace = true
+
+[[bin]]
+name = "zim-craft"
+path = "src/main.rs"
+
+[lints]
+workspace = true

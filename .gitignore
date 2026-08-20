@@ -1,0 +1,6 @@
+/target
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+*.zim
+!crates/testutil/corpus/*.zim
