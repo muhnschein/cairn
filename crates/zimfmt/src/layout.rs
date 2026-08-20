@@ -38,13 +38,17 @@ impl Layout {
             data_end,
             "URL pointer list",
         )?;
-        region(
-            header.title_ptr_pos,
-            4,
-            header.entry_count,
-            data_end,
-            "title pointer list",
-        )?;
+        // A header without a title index is normal, not broken: current libzim
+        // writes a sentinel here and stores the ordering as an entry.
+        if header.has_title_index() {
+            region(
+                header.title_ptr_pos,
+                4,
+                header.entry_count,
+                data_end,
+                "title pointer list",
+            )?;
+        }
         region(
             header.cluster_ptr_pos,
             8,
@@ -89,12 +93,20 @@ impl Layout {
 }
 
 fn region(pos: u64, stride: u64, count: u32, data_end: u64, what: &'static str) -> Result<()> {
+    // The numbers travel with the error: an operator looking at a refused
+    // archive needs to see which region, where it starts, and how far it runs.
+    let fail = |bytes: u64| Error::Region {
+        what,
+        at: pos,
+        bytes,
+        data_end,
+    };
     let len = stride
         .checked_mul(u64::from(count))
-        .ok_or(Error::Region(what))?;
-    let end = pos.checked_add(len).ok_or(Error::Region(what))?;
+        .ok_or_else(|| fail(u64::MAX))?;
+    let end = pos.checked_add(len).ok_or_else(|| fail(len))?;
     if end > data_end {
-        Err(Error::Region(what))
+        Err(fail(len))
     } else {
         Ok(())
     }

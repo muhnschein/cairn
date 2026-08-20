@@ -27,6 +27,8 @@ pub struct ArchiveSummary {
     pub major_version: u16,
     pub minor_version: u16,
     pub content_namespace: char,
+    /// Whether `/suggest` can answer for this archive at all.
+    pub suggest: bool,
 }
 
 /// An entry's content and what it resolved to.

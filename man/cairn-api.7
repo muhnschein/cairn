@@ -76,7 +76,8 @@ Every open archive.
 {"archives": [
   {"uuid": "...", "title": "Wikipedia", "entry_count": 6000000,
    "cluster_count": 90000, "main_page": "index.html",
-   "format_version": "6.1", "content_namespace": "C"}
+   "format_version": "6.3", "content_namespace": "C",
+   "suggest": true}
 ]}
 .Ed
 .Pp
@@ -140,6 +141,18 @@ pointer list.
 .Bd -literal -offset indent
 {"archive": "...", "suggestions": [{"title": "Apple", "path": "Apple"}]}
 .Ed
+.Pp
+Suggestions come from the archive's own title ordering: the entry
+.Pa X/listing/titleOrdered/v1
+in archives written by a current libzim, or the header's title pointer list in
+older ones.
+The first covers front articles only, so a suggestion is always an article,
+never a metadata or asset entry.
+An archive carrying neither ordering answers with an empty list; the
+.Ql suggest
+field of
+.Pa /v1/archives
+says whether an archive can answer at all.
 .Pp
 Matching is byte-exact on the stored title: no case folding, no diacritic
 folding.

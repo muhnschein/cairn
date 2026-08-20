@@ -238,3 +238,49 @@ fn an_empty_directory_is_an_empty_catalog() {
         Err(LookupError::NoSuchArchive)
     ));
 }
+
+#[test]
+fn suggestions_come_from_the_listing_entry_in_a_modern_archive() {
+    // The default builder layout is what current libzim writes: a sentinel in
+    // the header, the ordering in X/listing/titleOrdered/v1.
+    let dir = TempDir::new("modern");
+    dir.write(
+        "s.zim",
+        &Builder::new()
+            .compression(Compression::Zstd)
+            .content("a.html", "Apple", 0, b"a")
+            .content("b.html", "Apricot", 0, b"b")
+            .content("c.html", "Banana", 0, b"c")
+            .build(),
+    );
+    let c = catalog(&dir);
+    let uuid = uuid_of(&c);
+
+    assert!(c.archives()[0].summary().has_title_index);
+    let s = c.suggest(&uuid, "Ap", 10).unwrap();
+    assert_eq!(
+        s.iter().map(|s| s.title.as_str()).collect::<Vec<_>>(),
+        ["Apple", "Apricot"]
+    );
+    assert_eq!(s[0].path, "a.html");
+}
+
+#[test]
+fn an_archive_without_a_title_ordering_says_so_and_suggests_nothing() {
+    let mut bytes = Builder::new()
+        .legacy_title_index()
+        .content("a.html", "Apple", 0, b"a")
+        .build();
+    // The sentinel with no listing entry: legal, and nothing to order by.
+    bytes[40..48].copy_from_slice(&u64::MAX.to_le_bytes());
+
+    let dir = TempDir::new("no-titles");
+    dir.write("s.zim", &bytes);
+    let c = catalog(&dir);
+    let uuid = uuid_of(&c);
+
+    assert!(!c.archives()[0].summary().has_title_index);
+    assert!(c.suggest(&uuid, "A", 10).unwrap().is_empty());
+    // Everything else still works.
+    assert_eq!(c.entry(&uuid, "a.html").unwrap().blob.as_slice(), b"a");
+}

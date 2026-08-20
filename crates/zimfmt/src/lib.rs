@@ -22,4 +22,4 @@ pub use error::{Error, Result};
 pub use header::{Header, MAGIC};
 pub use layout::Layout;
 pub use uuid::Uuid;
-pub use zim::{MAX_REDIRECT_HOPS, Zim};
+pub use zim::{MAX_REDIRECT_HOPS, TITLE_LISTING_V1, TitleIndex, Zim};

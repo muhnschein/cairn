@@ -15,7 +15,7 @@ fn reads_a_sample_archive() {
     let (layout, _) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
 
-    assert_eq!(zim.entry_count(), 7);
+    assert_eq!(zim.entry_count(), 8); // seven entries plus the title listing
     assert_eq!(zim.header().content_namespace(), b'C');
     assert_eq!(zim.mime(0), Some(&b"text/html"[..]));
     assert!(zim.find(b'M', b"Title").unwrap().is_some());
@@ -125,10 +125,11 @@ fn title_order_supports_prefix_search() {
         .build();
     let (layout, _) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
-    let start = zim.title_lower_bound(b'C', b"Ap").unwrap();
-    let titles: Vec<Vec<u8>> = (start..zim.entry_count())
+    let index = zim.title_index().unwrap().expect("a title ordering");
+    let start = zim.title_lower_bound(&index, b'C', b"Ap").unwrap();
+    let titles: Vec<Vec<u8>> = (start..index.count())
         .map(|p| {
-            zim.dirent(zim.title_entry(p).unwrap())
+            zim.dirent(zim.title_entry(&index, p).unwrap())
                 .unwrap()
                 .effective_title()
                 .to_vec()
@@ -157,14 +158,27 @@ fn header_rejects_junk() {
 
 #[test]
 fn pointer_lists_must_fit_in_the_file() {
-    for field in [32usize, 40, 48] {
+    // The URL and cluster pointer lists have no sentinel: a position that far
+    // out is a malformed archive.
+    for field in [32usize, 48] {
         let mut bytes = testutil::sample().build();
         bytes[field..field + 8].copy_from_slice(&u64::MAX.to_le_bytes());
         assert!(
-            matches!(Layout::parse(&bytes), Err(Error::Region(_))),
+            matches!(Layout::parse(&bytes), Err(Error::Region { .. })),
             "field at {field}"
         );
     }
+
+    // The title pointer list does: -1 means the ordering lives in an entry.
+    let mut bytes = testutil::sample().legacy_title_index().build();
+    bytes[40..48].copy_from_slice(&u64::MAX.to_le_bytes());
+    let layout = Layout::parse(&bytes).expect("the sentinel is not a defect");
+    assert!(!layout.header().has_title_index());
+
+    // Any other out-of-range position still is one.
+    let mut bytes = testutil::sample().legacy_title_index().build();
+    bytes[40..48].copy_from_slice(&(u64::MAX - 1).to_le_bytes());
+    assert!(matches!(Layout::parse(&bytes), Err(Error::Region { .. })));
 }
 
 #[test]
@@ -185,11 +199,13 @@ fn truncation_at_every_length_is_handled() {
             }
             let _ = zim.resolve(i);
         }
-        for p in 0..zim.entry_count().min(64) {
-            let _ = zim.title_entry(p);
+        if let Ok(Some(index)) = zim.title_index() {
+            for p in 0..index.count().min(64) {
+                let _ = zim.title_entry(&index, p);
+            }
+            let _ = zim.title_lower_bound(&index, b'C', b"M");
         }
         let _ = zim.find(b'C', b"index.html");
-        let _ = zim.title_lower_bound(b'C', b"M");
     }
 }
 
@@ -216,7 +232,8 @@ fn entry_and_cluster_indices_are_checked() {
     let zim = Zim::new(&bytes, &layout);
     assert_eq!(zim.dirent(9999), Err(Error::EntryIndex(9999)));
     assert_eq!(zim.cluster_raw(9999), Err(Error::ClusterIndex(9999)));
-    assert_eq!(zim.title_entry(9999), Err(Error::EntryIndex(9999)));
+    let index = zim.title_index().unwrap().expect("a title ordering");
+    assert_eq!(zim.title_entry(&index, 9999), Err(Error::EntryIndex(9999)));
 }
 
 #[test]
@@ -237,4 +254,79 @@ fn a_decoder_that_panics_is_still_an_error() {
         }
     }
     assert!(errors > 0, "the crafted cluster should fail to decode");
+}
+
+#[test]
+fn a_modern_archive_orders_titles_from_the_listing_entry() {
+    // What current libzim writes: the header field is a sentinel and the
+    // ordering is the blob of X/listing/titleOrdered/v1.
+    let bytes = Builder::new()
+        .content("a.html", "Apple", 0, b"a")
+        .content("b.html", "Banana", 0, b"b")
+        .content("c.html", "Cherry", 0, b"c")
+        .build();
+    let layout = Layout::parse(&bytes).expect("opens");
+    let zim = Zim::new(&bytes, &layout);
+
+    assert!(
+        !zim.header().has_title_index(),
+        "the header carries a sentinel"
+    );
+    assert!(zim.find(b'X', zimfmt::TITLE_LISTING_V1).unwrap().is_some());
+
+    let index = zim
+        .title_index()
+        .unwrap()
+        .expect("ordering from the listing");
+    assert_eq!(index.count(), 3, "front articles only");
+    let titles: Vec<Vec<u8>> = (0..index.count())
+        .map(|p| {
+            zim.dirent(zim.title_entry(&index, p).unwrap())
+                .unwrap()
+                .effective_title()
+                .to_vec()
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        [b"Apple".to_vec(), b"Banana".to_vec(), b"Cherry".to_vec()]
+    );
+
+    let start = zim.title_lower_bound(&index, b'C', b"B").unwrap();
+    assert_eq!(
+        zim.title_entry(&index, start).unwrap(),
+        zim.find(b'C', b"b.html").unwrap().unwrap()
+    );
+}
+
+#[test]
+fn a_legacy_archive_orders_titles_from_the_header() {
+    let bytes = Builder::new()
+        .legacy_title_index()
+        .version(5, 0)
+        .content("a.html", "Apple", 0, b"a")
+        .content("b.html", "Banana", 0, b"b")
+        .build();
+    let layout = Layout::parse(&bytes).expect("opens");
+    let zim = Zim::new(&bytes, &layout);
+
+    assert!(zim.header().has_title_index());
+    assert!(zim.find(b'X', zimfmt::TITLE_LISTING_V1).unwrap().is_none());
+    let index = zim
+        .title_index()
+        .unwrap()
+        .expect("ordering from the header");
+    assert_eq!(index.count(), zim.entry_count());
+}
+
+#[test]
+fn a_sentinel_without_a_listing_leaves_no_ordering() {
+    let mut bytes = Builder::new()
+        .legacy_title_index()
+        .content("a.html", "Apple", 0, b"a")
+        .build();
+    bytes[40..48].copy_from_slice(&u64::MAX.to_le_bytes());
+    let layout = Layout::parse(&bytes).expect("opens anyway");
+    let zim = Zim::new(&bytes, &layout);
+    assert_eq!(zim.title_index().unwrap(), None, "nothing to suggest from");
 }

@@ -30,8 +30,16 @@ impl Compression {
 
 #[derive(Debug, Clone)]
 enum Kind {
-    Content { mime: u16, data: Vec<u8> },
-    Redirect { to_ns: u8, to_url: String },
+    Content {
+        mime: u16,
+        data: Vec<u8>,
+    },
+    Redirect {
+        to_ns: u8,
+        to_url: String,
+    },
+    /// `X/listing/titleOrdered/v1`: filled in once entry indices are fixed.
+    TitleListing,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +63,7 @@ pub struct Builder {
     blobs_per_cluster: usize,
     checksum: bool,
     main_page: Option<String>,
+    title_listing: bool,
 }
 
 impl Default for Builder {
@@ -77,6 +86,7 @@ impl Builder {
             blobs_per_cluster: 4,
             checksum: true,
             main_page: None,
+            title_listing: true,
         }
     }
 
@@ -108,6 +118,14 @@ impl Builder {
     /// Blobs packed into one cluster.
     pub fn blobs_per_cluster(mut self, n: usize) -> Builder {
         self.blobs_per_cluster = n.max(1);
+        self
+    }
+
+    /// Keep the title ordering in the header, as archives written before
+    /// libzim moved it into an entry did. Current libzim writes the sentinel
+    /// and a listing entry, which is what this builder does by default.
+    pub fn legacy_title_index(mut self) -> Builder {
+        self.title_listing = false;
         self
     }
 
@@ -191,8 +209,52 @@ impl Builder {
 
     /// Serialize the archive.
     pub fn build(&self) -> Vec<u8> {
+        let content_ns = self.content_ns();
+        let mut mimes = self.mimes.clone();
+
         let mut entries = self.entries.clone();
+        if self.title_listing {
+            // libzim adds this entry before assigning indices, and so must we:
+            // the payload it carries is a list of those indices.
+            mimes.push("application/octet-stream+zimlisting".into());
+            entries.push(Entry {
+                ns: b'X',
+                url: "listing/titleOrdered/v1".into(),
+                title: String::new(),
+                kind: Kind::TitleListing,
+            });
+        }
         entries.sort_by(|a, b| (a.ns, &a.url).cmp(&(b.ns, &b.url)));
+
+        // Front articles, title-ordered, as little-endian entry indices.
+        let listing_mime = mimes.len().saturating_sub(1) as u16;
+        if self.title_listing {
+            let mut front: Vec<u32> = entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.ns == content_ns)
+                .map(|(i, _)| i as u32)
+                .collect();
+            front.sort_by_key(|&i| {
+                let e = &entries[i as usize];
+                if e.title.is_empty() {
+                    e.url.clone()
+                } else {
+                    e.title.clone()
+                }
+            });
+            let payload: Vec<u8> = front.iter().flat_map(|i| i.to_le_bytes()).collect();
+            for e in entries.iter_mut() {
+                if matches!(e.kind, Kind::TitleListing) {
+                    e.kind = Kind::Content {
+                        mime: listing_mime,
+                        data: payload.clone(),
+                    };
+                    break;
+                }
+            }
+        }
+        let entries = entries;
 
         let index_of = |ns: u8, url: &str| -> u32 {
             entries
@@ -202,31 +264,37 @@ impl Builder {
                 .unwrap_or(u32::MAX)
         };
 
-        // Pack content blobs into clusters.
-        let mut clusters: Vec<Vec<Vec<u8>>> = Vec::new();
+        // Pack blobs into clusters. The listing goes into one of its own,
+        // uncompressed: libzim requires that, and a reader must be able to
+        // borrow the indices straight from the mapping.
+        let mut clusters: Vec<(bool, Vec<Vec<u8>>)> = Vec::new();
         let mut placement: Vec<Option<(u32, u32)>> = Vec::new();
-        for e in &entries {
+        let compressed = self.compression != Compression::None;
+        for (i, e) in entries.iter().enumerate() {
             match &e.kind {
                 Kind::Content { data, .. } => {
-                    if clusters
-                        .last()
-                        .is_none_or(|c| c.len() >= self.blobs_per_cluster)
-                    {
-                        clusters.push(Vec::new());
+                    let listing =
+                        self.title_listing && e.ns == b'X' && e.url.starts_with("listing/");
+                    let fits = |c: &(bool, Vec<Vec<u8>>)| {
+                        c.0 == (compressed && !listing) && c.1.len() < self.blobs_per_cluster
+                    };
+                    if listing || clusters.last().is_none_or(|c| !fits(c)) {
+                        clusters.push((compressed && !listing, Vec::new()));
                     }
                     let ci = clusters.len() as u32 - 1;
-                    let bi = clusters[ci as usize].len() as u32;
-                    clusters[ci as usize].push(data.clone());
+                    let bi = clusters[ci as usize].1.len() as u32;
+                    clusters[ci as usize].1.push(data.clone());
                     placement.push(Some((ci, bi)));
+                    let _ = i;
                 }
-                Kind::Redirect { .. } => placement.push(None),
+                Kind::Redirect { .. } | Kind::TitleListing => placement.push(None),
             }
         }
 
         let mut out = vec![0u8; 80];
 
         let mime_list_pos = out.len() as u64;
-        for m in &self.mimes {
+        for m in &mimes {
             out.extend_from_slice(m.as_bytes());
             out.push(0);
         }
@@ -260,6 +328,8 @@ impl Builder {
                     out.extend_from_slice(&0u32.to_le_bytes());
                     out.extend_from_slice(&index_of(*to_ns, to_url).to_le_bytes());
                 }
+                // Resolved to content above, before indices were assigned.
+                Kind::TitleListing => unreachable!("title listing was not filled in"),
             }
             out.extend_from_slice(e.url.as_bytes());
             out.push(0);
@@ -268,11 +338,20 @@ impl Builder {
         }
 
         let mut cluster_pos = Vec::with_capacity(clusters.len());
-        for blobs in &clusters {
+        for (compressed, blobs) in &clusters {
             cluster_pos.push(out.len() as u64);
-            out.push(self.compression.tag() | if self.extended { 0x10 } else { 0 });
+            let tag = if *compressed {
+                self.compression.tag()
+            } else {
+                Compression::None.tag()
+            };
+            out.push(tag | if self.extended { 0x10 } else { 0 });
             let body = cluster_body(blobs, self.extended);
-            match self.compression {
+            match if *compressed {
+                self.compression
+            } else {
+                Compression::None
+            } {
                 Compression::None => out.extend_from_slice(&body),
                 Compression::Xz => {
                     let mut packed = Vec::new();
@@ -335,7 +414,15 @@ impl Builder {
         h.extend_from_slice(&(entries.len() as u32).to_le_bytes());
         h.extend_from_slice(&(clusters.len() as u32).to_le_bytes());
         h.extend_from_slice(&url_ptr_pos.to_le_bytes());
-        h.extend_from_slice(&title_ptr_pos.to_le_bytes());
+        // Current libzim writes -1 here and stores the ordering as an entry.
+        h.extend_from_slice(
+            &if self.title_listing {
+                u64::MAX
+            } else {
+                title_ptr_pos
+            }
+            .to_le_bytes(),
+        );
         h.extend_from_slice(&cluster_ptr_pos.to_le_bytes());
         h.extend_from_slice(&mime_list_pos.to_le_bytes());
         h.extend_from_slice(&main_page.to_le_bytes());
