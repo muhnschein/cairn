@@ -42,8 +42,11 @@ fn identity_survives_a_rename() {
     let dir = TempDir::new("rename");
     dir.write("first-name.zim", &testutil::sample().build());
     let before = uuid_of(&catalog(&dir));
-    std::fs::rename(dir.path().join("first-name.zim"), dir.path().join("second-name.zim"))
-        .unwrap();
+    std::fs::rename(
+        dir.path().join("first-name.zim"),
+        dir.path().join("second-name.zim"),
+    )
+    .unwrap();
     assert_eq!(before, uuid_of(&catalog(&dir)));
 }
 
@@ -79,7 +82,10 @@ fn redirects_report_the_resolved_path() {
 #[test]
 fn cluster_cache_serves_the_second_read() {
     let dir = TempDir::new("cache");
-    dir.write("s.zim", &testutil::sample().compression(Compression::Zstd).build());
+    dir.write(
+        "s.zim",
+        &testutil::sample().compression(Compression::Zstd).build(),
+    );
     let c = catalog(&dir);
     let uuid = uuid_of(&c);
     c.entry(&uuid, "index.html").unwrap();
@@ -97,7 +103,11 @@ fn uncompressed_entries_are_served_from_the_mapping() {
     dir.write("s.zim", &testutil::sample().build());
     let c = catalog(&dir);
     c.entry(&uuid_of(&c), "index.html").unwrap();
-    assert_eq!(c.cache_stats().entries, 0, "plain clusters do not enter the cache");
+    assert_eq!(
+        c.cache_stats().entries,
+        0,
+        "plain clusters do not enter the cache"
+    );
 }
 
 #[test]
@@ -113,7 +123,10 @@ fn legacy_namespace_paths_resolve() {
     );
     let c = catalog(&dir);
     let uuid = uuid_of(&c);
-    assert_eq!(c.entry(&uuid, "index.html").unwrap().blob.as_slice(), b"legacy");
+    assert_eq!(
+        c.entry(&uuid, "index.html").unwrap().blob.as_slice(),
+        b"legacy"
+    );
     let e = c.entry(&uuid, "I/logo.png").unwrap();
     assert_eq!(e.blob.as_slice(), b"png");
     assert_eq!(e.path, "I/logo.png");
@@ -130,7 +143,10 @@ fn content_namespace_wins_over_an_explicit_prefix() {
             .build(),
     );
     let c = catalog(&dir);
-    assert_eq!(c.entry(&uuid_of(&c), "I/logo.png").unwrap().blob.as_slice(), b"content");
+    assert_eq!(
+        c.entry(&uuid_of(&c), "I/logo.png").unwrap().blob.as_slice(),
+        b"content"
+    );
 }
 
 #[test]
@@ -139,8 +155,14 @@ fn missing_things_are_distinguishable() {
     dir.write("s.zim", &testutil::sample().build());
     let c = catalog(&dir);
     let uuid = uuid_of(&c);
-    assert!(matches!(c.entry(&uuid, "nope.html"), Err(LookupError::NoSuchEntry)));
-    assert!(matches!(c.entry("not-a-uuid", "index.html"), Err(LookupError::NoSuchArchive)));
+    assert!(matches!(
+        c.entry(&uuid, "nope.html"),
+        Err(LookupError::NoSuchEntry)
+    ));
+    assert!(matches!(
+        c.entry("not-a-uuid", "index.html"),
+        Err(LookupError::NoSuchArchive)
+    ));
     assert!(matches!(
         c.entry("00000000-0000-0000-0000-000000000000", "index.html"),
         Err(LookupError::NoSuchArchive)
@@ -161,10 +183,20 @@ fn suggestions_are_title_prefix_and_bounded() {
     let c = catalog(&dir);
     let uuid = uuid_of(&c);
     let s = c.suggest(&uuid, "Ap", 10).unwrap();
-    assert_eq!(s.iter().map(|s| s.title.as_str()).collect::<Vec<_>>(), ["Apple", "Apricot"]);
+    assert_eq!(
+        s.iter().map(|s| s.title.as_str()).collect::<Vec<_>>(),
+        ["Apple", "Apricot"]
+    );
     assert_eq!(s[0].path, "a.html");
-    assert_eq!(c.suggest(&uuid, "Ap", 1).unwrap().len(), 1, "limit is respected");
-    assert!(c.suggest(&uuid, "ap", 10).unwrap().is_empty(), "prefix match is byte exact");
+    assert_eq!(
+        c.suggest(&uuid, "Ap", 1).unwrap().len(),
+        1,
+        "limit is respected"
+    );
+    assert!(
+        c.suggest(&uuid, "ap", 10).unwrap().is_empty(),
+        "prefix match is byte exact"
+    );
     assert!(c.suggest(&uuid, "", 10).unwrap().len() == 3);
 }
 
@@ -187,7 +219,11 @@ fn metadata_splits_text_from_binary() {
     dir.write("s.zim", &testutil::sample().build());
     let c = catalog(&dir);
     let m = c.metadata(&uuid_of(&c)).unwrap();
-    assert!(m.text.iter().any(|(k, v)| k == "Title" && v == "Sample Archive"));
+    assert!(
+        m.text
+            .iter()
+            .any(|(k, v)| k == "Title" && v == "Sample Archive")
+    );
     assert!(m.text.iter().any(|(k, _)| k == "Description"));
     assert!(m.binary.iter().any(|k| k == "Illustration_48x48@1"));
 }
@@ -197,5 +233,8 @@ fn an_empty_directory_is_an_empty_catalog() {
     let dir = TempDir::new("empty");
     let c = catalog(&dir);
     assert!(c.archives().is_empty());
-    assert!(matches!(c.summary("00000000-0000-0000-0000-000000000000"), Err(LookupError::NoSuchArchive)));
+    assert!(matches!(
+        c.summary("00000000-0000-0000-0000-000000000000"),
+        Err(LookupError::NoSuchArchive)
+    ));
 }

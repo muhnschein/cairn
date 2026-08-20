@@ -91,15 +91,27 @@ fn run() -> i32 {
         ("archive", 2) => ("GET", format!("/v1/archives/{}", arg(1).unwrap_or(""))),
         ("get", 3) => (
             "GET",
-            format!("/v1/archives/{}/entry/{}", arg(1).unwrap_or(""), encode(arg(2).unwrap_or(""))),
+            format!(
+                "/v1/archives/{}/entry/{}",
+                arg(1).unwrap_or(""),
+                encode(arg(2).unwrap_or(""))
+            ),
         ),
         ("head", 3) => (
             "HEAD",
-            format!("/v1/archives/{}/entry/{}", arg(1).unwrap_or(""), encode(arg(2).unwrap_or(""))),
+            format!(
+                "/v1/archives/{}/entry/{}",
+                arg(1).unwrap_or(""),
+                encode(arg(2).unwrap_or(""))
+            ),
         ),
         ("suggest", 3) => (
             "GET",
-            format!("/v1/archives/{}/suggest?q={}", arg(1).unwrap_or(""), encode(arg(2).unwrap_or(""))),
+            format!(
+                "/v1/archives/{}/suggest?q={}",
+                arg(1).unwrap_or(""),
+                encode(arg(2).unwrap_or(""))
+            ),
         ),
         ("suggest", 4) => (
             "GET",
@@ -110,7 +122,10 @@ fn run() -> i32 {
                 arg(3).unwrap_or("")
             ),
         ),
-        ("random", 2) => ("GET", format!("/v1/archives/{}/random", arg(1).unwrap_or(""))),
+        ("random", 2) => (
+            "GET",
+            format!("/v1/archives/{}/random", arg(1).unwrap_or("")),
+        ),
         ("raw", 3) => {
             let m = arg(1).unwrap_or("GET");
             let t = arg(2).unwrap_or("/").to_owned();

@@ -131,28 +131,61 @@ impl Builder {
 
     /// Namespace this archive stores content in.
     pub fn content_ns(&self) -> u8 {
-        if self.major >= 6 && self.minor >= 1 { b'C' } else { b'A' }
+        if self.major >= 6 && self.minor >= 1 {
+            b'C'
+        } else {
+            b'A'
+        }
     }
 
     /// Add a content entry in the content namespace.
     pub fn content(self, url: &str, title: &str, mime: u16, data: &[u8]) -> Builder {
         let ns = self.content_ns();
-        self.entry_in(ns, url, title, Kind::Content { mime, data: data.to_vec() })
+        self.entry_in(
+            ns,
+            url,
+            title,
+            Kind::Content {
+                mime,
+                data: data.to_vec(),
+            },
+        )
     }
 
     /// Add a content entry in an explicit namespace.
     pub fn content_in(self, ns: u8, url: &str, title: &str, mime: u16, data: &[u8]) -> Builder {
-        self.entry_in(ns, url, title, Kind::Content { mime, data: data.to_vec() })
+        self.entry_in(
+            ns,
+            url,
+            title,
+            Kind::Content {
+                mime,
+                data: data.to_vec(),
+            },
+        )
     }
 
     /// Add a redirect in the content namespace.
     pub fn redirect(self, url: &str, title: &str, to_url: &str) -> Builder {
         let ns = self.content_ns();
-        self.entry_in(ns, url, title, Kind::Redirect { to_ns: ns, to_url: to_url.into() })
+        self.entry_in(
+            ns,
+            url,
+            title,
+            Kind::Redirect {
+                to_ns: ns,
+                to_url: to_url.into(),
+            },
+        )
     }
 
     fn entry_in(mut self, ns: u8, url: &str, title: &str, kind: Kind) -> Builder {
-        self.entries.push(Entry { ns, url: url.into(), title: title.into(), kind });
+        self.entries.push(Entry {
+            ns,
+            url: url.into(),
+            title: title.into(),
+            kind,
+        });
         self
     }
 
@@ -175,7 +208,10 @@ impl Builder {
         for e in &entries {
             match &e.kind {
                 Kind::Content { data, .. } => {
-                    if clusters.last().is_none_or(|c| c.len() >= self.blobs_per_cluster) {
+                    if clusters
+                        .last()
+                        .is_none_or(|c| c.len() >= self.blobs_per_cluster)
+                    {
                         clusters.push(Vec::new());
                     }
                     let ci = clusters.len() as u32 - 1;
@@ -256,7 +292,11 @@ impl Builder {
         let mut by_title: Vec<u32> = (0..entries.len() as u32).collect();
         by_title.sort_by_key(|&i| {
             let e = &entries[i as usize];
-            let t = if e.title.is_empty() { e.url.clone() } else { e.title.clone() };
+            let t = if e.title.is_empty() {
+                e.url.clone()
+            } else {
+                e.title.clone()
+            };
             (e.ns, t)
         });
 
@@ -332,13 +372,24 @@ fn cluster_body(blobs: &[Vec<u8>], extended: bool) -> Vec<u8> {
 pub fn sample() -> Builder {
     Builder::new()
         .mimes(["text/html", "image/png", "text/plain"])
-        .content("index.html", "Main Page", 0, b"<html><body>index</body></html>")
+        .content(
+            "index.html",
+            "Main Page",
+            0,
+            b"<html><body>index</body></html>",
+        )
         .content("logo.png", "Logo", 1, &[0x89, b'P', b'N', b'G', 0, 1, 2, 3])
         .content("notes.txt", "Notes", 2, b"plain notes")
         .redirect("home.html", "Home", "index.html")
         .content_in(b'M', "Title", "", 2, b"Sample Archive")
         .content_in(b'M', "Description", "", 2, b"An archive crafted for tests")
-        .content_in(b'M', "Illustration_48x48@1", "", 1, &[0x89, b'P', b'N', b'G', 0, 0xff])
+        .content_in(
+            b'M',
+            "Illustration_48x48@1",
+            "",
+            1,
+            &[0x89, b'P', b'N', b'G', 0, 0xff],
+        )
         .main_page("index.html")
 }
 
@@ -354,8 +405,7 @@ impl TempDir {
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir()
-            .join(format!("cairn-{tag}-{}-{n}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("cairn-{tag}-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&path).expect("create temp dir");
         TempDir { path }
     }

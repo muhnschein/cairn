@@ -27,7 +27,10 @@ pub fn is_uncompressed(kind: u8) -> bool {
 /// A crafted cluster cannot exhaust memory: the sink stops the decoder at the
 /// bound rather than after the fact.
 pub fn decompress(kind: u8, input: &[u8], limit: usize) -> Result<Vec<u8>> {
-    let mut sink = Bounded { out: Vec::new(), limit };
+    let mut sink = Bounded {
+        out: Vec::new(),
+        limit,
+    };
     let outcome = match kind {
         COMP_XZ => xz_into(input, &mut sink),
         COMP_ZSTD => zstd_into(input, &mut sink),
@@ -52,7 +55,9 @@ fn xz_into(input: &[u8], sink: &mut Bounded) -> Result<()> {
 fn zstd_into(input: &[u8], sink: &mut Bounded) -> Result<()> {
     let mut decoder = ruzstd::decoding::StreamingDecoder::new(input)
         .map_err(|_| Error::Decompress("zstd frame header"))?;
-    io::copy(&mut decoder, sink).map(|_| ()).map_err(|_| Error::Decompress("zstd"))
+    io::copy(&mut decoder, sink)
+        .map(|_| ())
+        .map_err(|_| Error::Decompress("zstd"))
 }
 
 /// A sink that fails the write that would cross `limit`.
@@ -73,7 +78,10 @@ impl Write for Bounded {
             // Fill to the bound so `overflowed` can distinguish this from a corrupt stream.
             let room = self.limit - self.out.len();
             self.out.extend_from_slice(&buf[..room]);
-            return Err(io::Error::new(io::ErrorKind::WriteZero, "output bound reached"));
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "output bound reached",
+            ));
         }
         self.out.extend_from_slice(buf);
         Ok(buf.len())
@@ -90,9 +98,18 @@ mod tests {
 
     #[test]
     fn obsolete_codecs_are_refused() {
-        assert_eq!(decompress(COMP_ZLIB, b"", 1024), Err(Error::UnsupportedCompression(2)));
-        assert_eq!(decompress(COMP_BZIP2, b"", 1024), Err(Error::UnsupportedCompression(3)));
-        assert_eq!(decompress(9, b"", 1024), Err(Error::UnsupportedCompression(9)));
+        assert_eq!(
+            decompress(COMP_ZLIB, b"", 1024),
+            Err(Error::UnsupportedCompression(2))
+        );
+        assert_eq!(
+            decompress(COMP_BZIP2, b"", 1024),
+            Err(Error::UnsupportedCompression(3))
+        );
+        assert_eq!(
+            decompress(9, b"", 1024),
+            Err(Error::UnsupportedCompression(9))
+        );
     }
 
     #[test]
@@ -104,9 +121,15 @@ mod tests {
     #[test]
     fn zstd_round_trip_and_bound() {
         let plain = vec![b'x'; 200_000];
-        let packed = ruzstd::encoding::compress_to_vec(&plain[..], ruzstd::encoding::CompressionLevel::Fastest);
+        let packed = ruzstd::encoding::compress_to_vec(
+            &plain[..],
+            ruzstd::encoding::CompressionLevel::Fastest,
+        );
         assert_eq!(decompress(COMP_ZSTD, &packed, 1 << 20).unwrap(), plain);
-        assert_eq!(decompress(COMP_ZSTD, &packed, 4096), Err(Error::TooLarge { limit: 4096 }));
+        assert_eq!(
+            decompress(COMP_ZSTD, &packed, 4096),
+            Err(Error::TooLarge { limit: 4096 })
+        );
     }
 
     #[test]
@@ -115,6 +138,9 @@ mod tests {
         let mut packed = Vec::new();
         lzma_rs::xz_compress(&mut &plain[..], &mut packed).unwrap();
         assert_eq!(decompress(COMP_XZ, &packed, 1 << 20).unwrap(), plain);
-        assert_eq!(decompress(COMP_XZ, &packed, 4096), Err(Error::TooLarge { limit: 4096 }));
+        assert_eq!(
+            decompress(COMP_XZ, &packed, 4096),
+            Err(Error::TooLarge { limit: 4096 })
+        );
     }
 }

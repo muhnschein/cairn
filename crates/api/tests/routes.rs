@@ -92,7 +92,10 @@ impl Catalog for Stub {
             .iter()
             .filter(|t| t.starts_with(prefix))
             .take(limit)
-            .map(|t| Suggestion { title: (*t).to_owned(), path: format!("{}.html", t.to_lowercase()) })
+            .map(|t| Suggestion {
+                title: (*t).to_owned(),
+                path: format!("{}.html", t.to_lowercase()),
+            })
             .collect())
     }
 }
@@ -101,7 +104,10 @@ fn router(auth: Option<&str>) -> Router {
     Router::new(
         Arc::new(Stub),
         Limits::default(),
-        Policy { auth_token: auth.map(str::to_owned), ..Policy::default() },
+        Policy {
+            auth_token: auth.map(str::to_owned),
+            ..Policy::default()
+        },
         Box::new(|| Status {
             version: "0.1.0".into(),
             uptime_seconds: 7,
@@ -141,7 +147,10 @@ fn body(r: &Response) -> String {
 }
 
 fn header<'a>(r: &'a Response, name: &str) -> Option<&'a str> {
-    r.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    r.headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
 }
 
 #[test]
@@ -150,7 +159,10 @@ fn status_reports_the_sandbox() {
     assert_eq!(r.status, 200);
     let b = body(&r);
     assert!(b.contains(r#""version":"0.1.0""#), "{b}");
-    assert!(b.contains(r#""name":"seccomp","state":"applied","detail":"kill""#), "{b}");
+    assert!(
+        b.contains(r#""name":"seccomp","state":"applied","detail":"kill""#),
+        "{b}"
+    );
     assert!(b.contains(r#""required":true"#), "{b}");
     assert!(b.contains(r#""limits":{"#), "{b}");
 }
@@ -171,12 +183,18 @@ fn archive_detail_includes_metadata() {
     assert_eq!(r.status, 200);
     let b = body(&r);
     assert!(b.contains(r#""metadata":{"Title":"Stub Archive"}"#), "{b}");
-    assert!(b.contains(r#""binary_metadata":["Illustration_48x48@1"]"#), "{b}");
+    assert!(
+        b.contains(r#""binary_metadata":["Illustration_48x48@1"]"#),
+        "{b}"
+    );
 }
 
 #[test]
 fn serves_entry_content_with_the_documented_headers() {
-    let r = get(&router(None), &format!("/v1/archives/{UUID}/entry/index.html"));
+    let r = get(
+        &router(None),
+        &format!("/v1/archives/{UUID}/entry/index.html"),
+    );
     assert_eq!(r.status, 200);
     assert_eq!(body(&r), "0123456789");
     assert_eq!(header(&r, "content-type"), Some("text/html"));
@@ -184,16 +202,28 @@ fn serves_entry_content_with_the_documented_headers() {
     assert_eq!(header(&r, "x-cairn-path"), Some("index.html"));
     assert_eq!(header(&r, "accept-ranges"), Some("bytes"));
     assert_eq!(header(&r, "x-content-type-options"), Some("nosniff"));
-    assert_eq!(header(&r, "cross-origin-resource-policy"), Some("same-origin"));
-    assert_eq!(header(&r, "content-security-policy"), Some("default-src 'none'; sandbox"));
+    assert_eq!(
+        header(&r, "cross-origin-resource-policy"),
+        Some("same-origin")
+    );
+    assert_eq!(
+        header(&r, "content-security-policy"),
+        Some("default-src 'none'; sandbox")
+    );
 }
 
 #[test]
 fn archive_data_cannot_inject_a_header() {
-    let r = get(&router(None), &format!("/v1/archives/{UUID}/entry/evil.html"));
+    let r = get(
+        &router(None),
+        &format!("/v1/archives/{UUID}/entry/evil.html"),
+    );
     assert_eq!(r.status, 200);
     assert_eq!(header(&r, "content-type"), Some("application/octet-stream"));
-    assert_eq!(header(&r, "x-cairn-path"), Some("evil%0D%0AX-Injected:%20yes"));
+    assert_eq!(
+        header(&r, "x-cairn-path"),
+        Some("evil%0D%0AX-Injected:%20yes")
+    );
     let head = String::from_utf8(r.head_bytes()).unwrap();
     // The CRLF is encoded, so the payload stays inside one header value and
     // no new header line appears.
@@ -205,11 +235,20 @@ fn archive_data_cannot_inject_a_header() {
 
 #[test]
 fn head_keeps_the_length_and_drops_the_body() {
-    let r = request(&router(None), "HEAD", &format!("/v1/archives/{UUID}/entry/index.html"), &[]);
+    let r = request(
+        &router(None),
+        "HEAD",
+        &format!("/v1/archives/{UUID}/entry/index.html"),
+        &[],
+    );
     assert_eq!(r.status, 200);
     assert!(!r.send_body);
     assert_eq!(r.payload.len(), 10);
-    assert!(String::from_utf8(r.head_bytes()).unwrap().contains("Content-Length: 10"));
+    assert!(
+        String::from_utf8(r.head_bytes())
+            .unwrap()
+            .contains("Content-Length: 10")
+    );
 }
 
 #[test]
@@ -238,14 +277,20 @@ fn multipart_and_unsatisfiable_ranges_are_refused() {
 
 #[test]
 fn empty_entries_are_served() {
-    let r = get(&router(None), &format!("/v1/archives/{UUID}/entry/empty.txt"));
+    let r = get(
+        &router(None),
+        &format!("/v1/archives/{UUID}/entry/empty.txt"),
+    );
     assert_eq!(r.status, 200);
     assert_eq!(r.payload.len(), 0);
 }
 
 #[test]
 fn a_malformed_archive_is_503_not_500() {
-    let r = get(&router(None), &format!("/v1/archives/{UUID}/entry/broken.html"));
+    let r = get(
+        &router(None),
+        &format!("/v1/archives/{UUID}/entry/broken.html"),
+    );
     assert_eq!(r.status, 503);
     assert!(body(&r).contains("archive_unavailable"));
 }
@@ -353,10 +398,21 @@ fn auth_is_checked_before_routing() {
         assert_eq!(header(&resp, "www-authenticate"), Some("Bearer"));
     }
 
-    let ok = request(&r, "GET", "/v1/status", &[("Authorization", "Bearer s3cret")]);
+    let ok = request(
+        &r,
+        "GET",
+        "/v1/status",
+        &[("Authorization", "Bearer s3cret")],
+    );
     assert_eq!(ok.status, 200);
 
-    for value in ["Bearer wrong", "Bearer s3cre", "Bearer s3cretx", "s3cret", "Basic s3cret"] {
+    for value in [
+        "Bearer wrong",
+        "Bearer s3cre",
+        "Bearer s3cretx",
+        "s3cret",
+        "Basic s3cret",
+    ] {
         let resp = request(&r, "GET", "/v1/status", &[("Authorization", value)]);
         assert_eq!(resp.status, 401, "{value}");
     }
@@ -364,7 +420,10 @@ fn auth_is_checked_before_routing() {
 
 #[test]
 fn error_bodies_never_echo_the_request() {
-    let r = get(&router(None), "/v1/archives/not-a-uuid-at-all-really-nope-x/entry/secret");
+    let r = get(
+        &router(None),
+        "/v1/archives/not-a-uuid-at-all-really-nope-x/entry/secret",
+    );
     assert_eq!(r.status, 400);
     let b = body(&r);
     assert!(!b.contains("secret"), "{b}");
@@ -390,7 +449,10 @@ fn head_of_every_response_is_well_formed() {
         assert!(head.starts_with("HTTP/1.1 "), "{target}");
         assert!(head.ends_with("\r\n\r\n"), "{target}");
         assert!(head.contains("Content-Length: "), "{target}");
-        assert!(!head[9..].contains("HTTP/1.1"), "{target}: header injection");
+        assert!(
+            !head[9..].contains("HTTP/1.1"),
+            "{target}: header injection"
+        );
     }
 }
 

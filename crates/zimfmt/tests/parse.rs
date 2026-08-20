@@ -23,7 +23,9 @@ fn reads_a_sample_archive() {
     let idx = zim.find(b'C', b"index.html").unwrap().expect("index.html");
     let d = zim.dirent(idx).unwrap();
     assert_eq!(d.effective_title(), b"Main Page");
-    let Target::Content { cluster, blob } = d.target else { panic!("not content") };
+    let Target::Content { cluster, blob } = d.target else {
+        panic!("not content")
+    };
     let c = zim.cluster(cluster, LIMIT).unwrap();
     assert_eq!(c.blob(blob).unwrap(), b"<html><body>index</body></html>");
 
@@ -43,7 +45,9 @@ fn follows_a_redirect() {
 
 #[test]
 fn self_referential_redirect_stops() {
-    let mut bytes = Builder::new().redirect("loop.html", "Loop", "loop.html").build();
+    let mut bytes = Builder::new()
+        .redirect("loop.html", "Loop", "loop.html")
+        .build();
     let (layout, _) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     let i = zim.find(b'C', b"loop.html").unwrap().unwrap();
@@ -76,7 +80,11 @@ fn every_compression_round_trips() {
                 panic!("not content")
             };
             let cl = zim.cluster(cluster, LIMIT).unwrap();
-            assert_eq!(cl.blob(blob).unwrap(), b"plain notes", "{c:?} extended={extended}");
+            assert_eq!(
+                cl.blob(blob).unwrap(),
+                b"plain notes",
+                "{c:?} extended={extended}"
+            );
         }
     }
 }
@@ -119,7 +127,12 @@ fn title_order_supports_prefix_search() {
     let zim = Zim::new(&bytes, &layout);
     let start = zim.title_lower_bound(b'C', b"Ap").unwrap();
     let titles: Vec<Vec<u8>> = (start..zim.entry_count())
-        .map(|p| zim.dirent(zim.title_entry(p).unwrap()).unwrap().effective_title().to_vec())
+        .map(|p| {
+            zim.dirent(zim.title_entry(p).unwrap())
+                .unwrap()
+                .effective_title()
+                .to_vec()
+        })
         .take_while(|t| t.starts_with(b"Ap"))
         .collect();
     assert_eq!(titles, vec![b"Apple".to_vec(), b"Apricot".to_vec()]);
@@ -136,7 +149,10 @@ fn header_rejects_junk() {
 
     let mut bytes = testutil::sample().build();
     bytes[4..6].copy_from_slice(&9u16.to_le_bytes());
-    assert!(matches!(Layout::parse(&bytes), Err(Error::UnsupportedVersion { .. })));
+    assert!(matches!(
+        Layout::parse(&bytes),
+        Err(Error::UnsupportedVersion { .. })
+    ));
 }
 
 #[test]
@@ -144,7 +160,10 @@ fn pointer_lists_must_fit_in_the_file() {
     for field in [32usize, 40, 48] {
         let mut bytes = testutil::sample().build();
         bytes[field..field + 8].copy_from_slice(&u64::MAX.to_le_bytes());
-        assert!(matches!(Layout::parse(&bytes), Err(Error::Region(_))), "field at {field}");
+        assert!(
+            matches!(Layout::parse(&bytes), Err(Error::Region(_))),
+            "field at {field}"
+        );
     }
 }
 
@@ -153,15 +172,16 @@ fn truncation_at_every_length_is_handled() {
     let full = testutil::sample().compression(Compression::Zstd).build();
     for n in 0..full.len() {
         let bytes = &full[..n];
-        let Ok(layout) = Layout::parse(bytes) else { continue };
+        let Ok(layout) = Layout::parse(bytes) else {
+            continue;
+        };
         let zim = Zim::new(bytes, &layout);
         for i in 0..zim.entry_count().min(64) {
-            if let Ok(d) = zim.dirent(i) {
-                if let Target::Content { cluster, blob } = d.target {
-                    if let Ok(c) = zim.cluster(cluster, LIMIT) {
-                        let _ = c.blob(blob);
-                    }
-                }
+            if let Ok(d) = zim.dirent(i)
+                && let Target::Content { cluster, blob } = d.target
+                && let Ok(c) = zim.cluster(cluster, LIMIT)
+            {
+                let _ = c.blob(blob);
             }
             let _ = zim.resolve(i);
         }
@@ -183,7 +203,10 @@ fn cluster_pointers_out_of_order_are_refused() {
     bytes[base + 8..base + 16].copy_from_slice(&(third + 1).to_le_bytes());
     let layout = Layout::parse(&bytes).unwrap();
     let zim = Zim::new(&bytes, &layout);
-    assert_eq!(zim.cluster_raw(1), Err(Error::Cluster("cluster extent out of order")));
+    assert_eq!(
+        zim.cluster_raw(1),
+        Err(Error::Cluster("cluster extent out of order"))
+    );
 }
 
 #[test]

@@ -9,6 +9,8 @@ members = [
     "crates/cairn",
     "crates/testutil",
 ]
+# cargo-fuzz builds with a nightly toolchain and its own profile.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"

@@ -40,7 +40,10 @@ pub fn parse(value: &str, len: u64) -> Range {
             None => Range::Whole,
             Some(0) => Range::Unsatisfiable,
             Some(_) if len == 0 => Range::Unsatisfiable,
-            Some(n) => Range::Partial { start: len.saturating_sub(n), end: len },
+            Some(n) => Range::Partial {
+                start: len.saturating_sub(n),
+                end: len,
+            },
         },
         (start, "") => match digits(start) {
             None => Range::Whole,
@@ -49,7 +52,10 @@ pub fn parse(value: &str, len: u64) -> Range {
         },
         (start, end) => match (digits(start), digits(end)) {
             (Some(s), Some(e)) if s > e || s >= len => Range::Unsatisfiable,
-            (Some(s), Some(e)) => Range::Partial { start: s, end: e.saturating_add(1).min(len) },
+            (Some(s), Some(e)) => Range::Partial {
+                start: s,
+                end: e.saturating_add(1).min(len),
+            },
             _ => Range::Whole,
         },
     }
@@ -61,12 +67,39 @@ mod tests {
 
     #[test]
     fn plain_ranges() {
-        assert_eq!(parse("bytes=0-9", 100), Range::Partial { start: 0, end: 10 });
-        assert_eq!(parse("bytes=10-", 100), Range::Partial { start: 10, end: 100 });
-        assert_eq!(parse("bytes=-10", 100), Range::Partial { start: 90, end: 100 });
-        assert_eq!(parse("bytes=0-1000", 100), Range::Partial { start: 0, end: 100 });
-        assert_eq!(parse("bytes=99-99", 100), Range::Partial { start: 99, end: 100 });
-        assert_eq!(parse("bytes=-500", 100), Range::Partial { start: 0, end: 100 });
+        assert_eq!(
+            parse("bytes=0-9", 100),
+            Range::Partial { start: 0, end: 10 }
+        );
+        assert_eq!(
+            parse("bytes=10-", 100),
+            Range::Partial {
+                start: 10,
+                end: 100
+            }
+        );
+        assert_eq!(
+            parse("bytes=-10", 100),
+            Range::Partial {
+                start: 90,
+                end: 100
+            }
+        );
+        assert_eq!(
+            parse("bytes=0-1000", 100),
+            Range::Partial { start: 0, end: 100 }
+        );
+        assert_eq!(
+            parse("bytes=99-99", 100),
+            Range::Partial {
+                start: 99,
+                end: 100
+            }
+        );
+        assert_eq!(
+            parse("bytes=-500", 100),
+            Range::Partial { start: 0, end: 100 }
+        );
     }
 
     #[test]

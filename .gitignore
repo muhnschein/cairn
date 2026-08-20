@@ -3,4 +3,4 @@
 /fuzz/corpus
 /fuzz/artifacts
 *.zim
-!crates/testutil/corpus/*.zim
+!fuzz/seeds/archive/*.zim

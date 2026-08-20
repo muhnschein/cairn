@@ -61,7 +61,10 @@ impl<'a> Zim<'a> {
         if off >= self.layout.data_end() {
             return Err(Error::Dirent("offset past archive data"));
         }
-        Dirent::parse(self.bytes, to_usize(off).ok_or(Error::Dirent("offset overflow"))?)
+        Dirent::parse(
+            self.bytes,
+            to_usize(off).ok_or(Error::Dirent("offset overflow"))?,
+        )
     }
 
     /// Entry index of the `position`-th entry in title order.
@@ -70,8 +73,11 @@ impl<'a> Zim<'a> {
             return Err(Error::EntryIndex(position));
         }
         let ptr = self.header().title_ptr_pos + u64::from(position) * 4;
-        let index = u32le(self.bytes, to_usize(ptr).ok_or(Error::EntryIndex(position))?)
-            .ok_or(Error::EntryIndex(position))?;
+        let index = u32le(
+            self.bytes,
+            to_usize(ptr).ok_or(Error::EntryIndex(position))?,
+        )
+        .ok_or(Error::EntryIndex(position))?;
         if index >= self.entry_count() {
             return Err(Error::EntryIndex(index));
         }
@@ -92,8 +98,11 @@ impl<'a> Zim<'a> {
             u64le(self.bytes, at).ok_or(Error::ClusterIndex(index))
         };
         let start = ptr_at(index)?;
-        let end =
-            if index + 1 < self.cluster_count() { ptr_at(index + 1)? } else { self.layout.data_end() };
+        let end = if index + 1 < self.cluster_count() {
+            ptr_at(index + 1)?
+        } else {
+            self.layout.data_end()
+        };
         if start >= end || end > self.layout.data_end() {
             return Err(Error::Cluster("cluster extent out of order"));
         }
@@ -110,7 +119,9 @@ impl<'a> Zim<'a> {
     /// Raw bytes of cluster `index`, info byte first.
     pub fn cluster_raw(&self, index: u32) -> Result<&'a [u8]> {
         let (s, e) = self.cluster_extent(index)?;
-        self.bytes.get(s..e).ok_or(Error::Cluster("cluster past EOF"))
+        self.bytes
+            .get(s..e)
+            .ok_or(Error::Cluster("cluster past EOF"))
     }
 
     /// Compression type and offset width of cluster `index`, without decoding it.

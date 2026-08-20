@@ -1,4 +1,4 @@
-use crate::bytes::{u16le, u32le, u64le, slice};
+use crate::bytes::{slice, u16le, u32le, u64le};
 use crate::error::{Error, Result};
 use crate::uuid::Uuid;
 
@@ -44,7 +44,10 @@ impl Header {
         let major_version = u16le(head, 4).unwrap_or(0);
         let minor_version = u16le(head, 6).unwrap_or(0);
         if !(5..=6).contains(&major_version) {
-            return Err(Error::UnsupportedVersion { major: major_version, minor: minor_version });
+            return Err(Error::UnsupportedVersion {
+                major: major_version,
+                minor: minor_version,
+            });
         }
         let mut raw = [0u8; 16];
         raw.copy_from_slice(&head[8..24]);
@@ -75,7 +78,11 @@ impl Header {
 
     /// Namespace holding user-visible content in this archive.
     pub fn content_namespace(&self) -> u8 {
-        if self.new_namespace_scheme() { b'C' } else { b'A' }
+        if self.new_namespace_scheme() {
+            b'C'
+        } else {
+            b'A'
+        }
     }
 
     /// Main page entry index, if the archive declares one.

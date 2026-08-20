@@ -47,7 +47,11 @@ fn summary_of(s: archive::Summary) -> ArchiveSummary {
 
 impl Catalog for Archives {
     fn archives(&self) -> Vec<ArchiveSummary> {
-        self.inner.archives().iter().map(|a| summary_of(a.summary())).collect()
+        self.inner
+            .archives()
+            .iter()
+            .map(|a| summary_of(a.summary()))
+            .collect()
     }
 
     fn summary(&self, uuid: &str) -> Result<ArchiveSummary, CatalogError> {
@@ -56,7 +60,10 @@ impl Catalog for Archives {
 
     fn metadata(&self, uuid: &str) -> Result<Metadata, CatalogError> {
         let m = self.inner.metadata(uuid).map_err(map)?;
-        Ok(Metadata { text: m.text, binary: m.binary })
+        Ok(Metadata {
+            text: m.text,
+            binary: m.binary,
+        })
     }
 
     fn entry(&self, uuid: &str, path: &str) -> Result<EntryContent, CatalogError> {
@@ -83,7 +90,10 @@ impl Catalog for Archives {
             .suggest(uuid, prefix, limit)
             .map_err(map)?
             .into_iter()
-            .map(|s| Suggestion { title: s.title, path: s.path })
+            .map(|s| Suggestion {
+                title: s.title,
+                path: s.path,
+            })
             .collect())
     }
 }

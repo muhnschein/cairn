@@ -7,11 +7,21 @@ use zimfmt::Uuid;
 #[derive(Debug)]
 pub enum OpenError {
     /// The file could not be opened or mapped.
-    Io { path: PathBuf, source: std::io::Error },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     /// The file is not a ZIM archive cairn can serve.
-    Format { path: PathBuf, source: zimfmt::Error },
+    Format {
+        path: PathBuf,
+        source: zimfmt::Error,
+    },
     /// Two files carry the same archive UUID.
-    DuplicateUuid { uuid: Uuid, first: PathBuf, second: PathBuf },
+    DuplicateUuid {
+        uuid: Uuid,
+        first: PathBuf,
+        second: PathBuf,
+    },
 }
 
 impl fmt::Display for OpenError {
@@ -19,7 +29,11 @@ impl fmt::Display for OpenError {
         match self {
             OpenError::Io { path, source } => write!(f, "{}: {source}", path.display()),
             OpenError::Format { path, source } => write!(f, "{}: {source}", path.display()),
-            OpenError::DuplicateUuid { uuid, first, second } => write!(
+            OpenError::DuplicateUuid {
+                uuid,
+                first,
+                second,
+            } => write!(
                 f,
                 "duplicate archive UUID {uuid}: {} and {}",
                 first.display(),

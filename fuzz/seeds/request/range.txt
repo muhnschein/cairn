@@ -1,0 +1,4 @@
+GET /v1/archives/01234567-89ab-cdef-0123-456789abcdef/entry/index.html HTTP/1.1
+Host: cairn
+Range: bytes=0-9
+

@@ -11,7 +11,10 @@ pub struct Json {
 impl Json {
     /// An empty document.
     pub fn new() -> Json {
-        Json { out: String::new(), needs_comma: false }
+        Json {
+            out: String::new(),
+            needs_comma: false,
+        }
     }
 
     /// Finished bytes.

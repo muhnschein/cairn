@@ -47,7 +47,11 @@ pub struct Layer {
 
 impl Layer {
     fn new(name: &'static str, state: State, detail: Option<String>) -> Layer {
-        Layer { name, state, detail }
+        Layer {
+            name,
+            state,
+            detail,
+        }
     }
 }
 
@@ -88,7 +92,9 @@ pub struct Report {
 impl Report {
     /// True when every enabled layer is in force.
     pub fn complete(&self) -> bool {
-        self.layers.iter().all(|l| matches!(l.state, State::Applied | State::Disabled))
+        self.layers
+            .iter()
+            .all(|l| matches!(l.state, State::Applied | State::Disabled))
     }
 
     /// Layers that are neither applied nor deliberately disabled.
@@ -153,7 +159,11 @@ pub fn apply(policy: &Policy) -> Result<Report, Incomplete> {
             Ok(len) => Layer::new(
                 "seccomp",
                 State::Applied,
-                Some(format!("{} syscalls, {} on violation, {len} instructions", allowed.len(), policy.action)),
+                Some(format!(
+                    "{} syscalls, {} on violation, {len} instructions",
+                    allowed.len(),
+                    policy.action
+                )),
             ),
             Err(e) if e.raw_os_error() == Some(libc::EINVAL) => {
                 Layer::new("seccomp", State::Unsupported, Some(e.to_string()))
@@ -164,9 +174,14 @@ pub fn apply(policy: &Policy) -> Result<Report, Incomplete> {
         Layer::new("seccomp", State::Disabled, None)
     });
 
-    let report = Report { required: policy.require, layers };
+    let report = Report {
+        required: policy.require,
+        layers,
+    };
     if policy.require && !report.complete() {
-        return Err(Incomplete { layers: report.shortfall().into_iter().cloned().collect() });
+        return Err(Incomplete {
+            layers: report.shortfall().into_iter().cloned().collect(),
+        });
     }
     Ok(report)
 }
@@ -196,8 +211,12 @@ mod tests {
         };
         assert!(!bad.complete());
         assert_eq!(bad.shortfall().len(), 1);
-        assert!(Incomplete { layers: bad.shortfall().into_iter().cloned().collect() }
+        assert!(
+            Incomplete {
+                layers: bad.shortfall().into_iter().cloned().collect()
+            }
             .to_string()
-            .contains("b=unsupported"));
+            .contains("b=unsupported")
+        );
     }
 }

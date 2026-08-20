@@ -31,12 +31,35 @@ impl Layout {
             _ => file_len,
         };
 
-        region(header.url_ptr_pos, 8, header.entry_count, data_end, "URL pointer list")?;
-        region(header.title_ptr_pos, 4, header.entry_count, data_end, "title pointer list")?;
-        region(header.cluster_ptr_pos, 8, header.cluster_count, data_end, "cluster pointer list")?;
+        region(
+            header.url_ptr_pos,
+            8,
+            header.entry_count,
+            data_end,
+            "URL pointer list",
+        )?;
+        region(
+            header.title_ptr_pos,
+            4,
+            header.entry_count,
+            data_end,
+            "title pointer list",
+        )?;
+        region(
+            header.cluster_ptr_pos,
+            8,
+            header.cluster_count,
+            data_end,
+            "cluster pointer list",
+        )?;
 
         let mimes = parse_mime_table(bytes, header.mime_list_pos, data_end)?;
-        Ok(Layout { header, mimes, file_len, data_end })
+        Ok(Layout {
+            header,
+            mimes,
+            file_len,
+            data_end,
+        })
     }
 
     /// The parsed header.
@@ -66,9 +89,15 @@ impl Layout {
 }
 
 fn region(pos: u64, stride: u64, count: u32, data_end: u64, what: &'static str) -> Result<()> {
-    let len = stride.checked_mul(u64::from(count)).ok_or(Error::Region(what))?;
+    let len = stride
+        .checked_mul(u64::from(count))
+        .ok_or(Error::Region(what))?;
     let end = pos.checked_add(len).ok_or(Error::Region(what))?;
-    if end > data_end { Err(Error::Region(what)) } else { Ok(()) }
+    if end > data_end {
+        Err(Error::Region(what))
+    } else {
+        Ok(())
+    }
 }
 
 fn parse_mime_table(bytes: &[u8], pos: u64, data_end: u64) -> Result<Vec<Box<[u8]>>> {
@@ -103,7 +132,10 @@ mod tests {
     #[test]
     fn mime_table_needs_terminator() {
         let mut buf = b"text/html\0image/png\0".to_vec();
-        assert_eq!(parse_mime_table(&buf, 0, buf.len() as u64), Err(Error::MimeList));
+        assert_eq!(
+            parse_mime_table(&buf, 0, buf.len() as u64),
+            Err(Error::MimeList)
+        );
         buf.push(0);
         let mimes = parse_mime_table(&buf, 0, buf.len() as u64).unwrap();
         assert_eq!(mimes.len(), 2);
@@ -117,7 +149,10 @@ mod tests {
             buf.extend_from_slice(b"a\0");
         }
         buf.push(0);
-        assert_eq!(parse_mime_table(&buf, 0, buf.len() as u64), Err(Error::MimeList));
+        assert_eq!(
+            parse_mime_table(&buf, 0, buf.len() as u64),
+            Err(Error::MimeList)
+        );
     }
 
     #[test]

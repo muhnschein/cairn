@@ -161,7 +161,10 @@ impl Config {
                 message: format!("expected `key = value`, found {line:?}"),
             })?;
             let (key, value) = (key.trim(), value.trim());
-            let err = |m: String| ConfigError { line: n, message: m };
+            let err = |m: String| ConfigError {
+                line: n,
+                message: m,
+            };
 
             match key {
                 "listen" => c.listen = parse_listen(value).map_err(err)?,
@@ -177,7 +180,11 @@ impl Config {
                         "require" => SandboxMode::Require,
                         "best-effort" => SandboxMode::BestEffort,
                         "off" => SandboxMode::Off,
-                        _ => return Err(err(format!("expected require|best-effort|off, found {value:?}"))),
+                        _ => {
+                            return Err(err(format!(
+                                "expected require|best-effort|off, found {value:?}"
+                            )));
+                        }
                     }
                 }
                 "sandbox_landlock" => c.sandbox_landlock = parse_bool(value).map_err(err)?,
@@ -198,7 +205,9 @@ impl Config {
                 "max_cluster_bytes" => c.max_cluster_bytes = parse_size(value).map_err(err)?,
                 "cluster_cache_bytes" => c.cluster_cache_bytes = parse_size(value).map_err(err)?,
                 "max_metadata_bytes" => c.max_metadata_bytes = parse_size(value).map_err(err)?,
-                "max_metadata_entries" => c.max_metadata_entries = parse_size(value).map_err(err)?,
+                "max_metadata_entries" => {
+                    c.max_metadata_entries = parse_size(value).map_err(err)?
+                }
                 "max_request_line" => c.max_request_line = parse_size(value).map_err(err)?,
                 "max_header_bytes" => c.max_header_bytes = parse_size(value).map_err(err)?,
                 "max_headers" => c.max_headers = parse_size(value).map_err(err)?,
@@ -212,7 +221,11 @@ impl Config {
                         "warn" => Level::Warn,
                         "info" => Level::Info,
                         "debug" => Level::Debug,
-                        _ => return Err(err(format!("expected error|warn|info|debug, found {value:?}"))),
+                        _ => {
+                            return Err(err(format!(
+                                "expected error|warn|info|debug, found {value:?}"
+                            )));
+                        }
                     }
                 }
                 "access_log" => c.access_log = parse_bool(value).map_err(err)?,
@@ -232,7 +245,10 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        let bad = |m: &str| ConfigError { line: 0, message: m.to_owned() };
+        let bad = |m: &str| ConfigError {
+            line: 0,
+            message: m.to_owned(),
+        };
         if self.max_connections == 0 {
             return Err(bad("max_connections must be at least 1"));
         }
@@ -297,7 +313,9 @@ fn parse_listen(value: &str) -> Result<Listen, String> {
             .to_socket_addrs()
             .map_err(|e| format!("{addr:?}: {e}"))?
             .collect::<Vec<_>>();
-        let addr = resolved.pop().ok_or_else(|| format!("{addr:?} resolved to nothing"))?;
+        let addr = resolved
+            .pop()
+            .ok_or_else(|| format!("{addr:?} resolved to nothing"))?;
         // TLS is the reverse proxy's job, so cairn never listens off-host.
         let loopback = match addr.ip() {
             IpAddr::V4(v4) => v4.is_loopback(),
@@ -352,7 +370,9 @@ fn parse_duration(value: &str) -> Result<Duration, String> {
 }
 
 fn parse_rate(value: &str) -> Result<f64, String> {
-    let v: f64 = value.parse().map_err(|_| format!("not a number: {value:?}"))?;
+    let v: f64 = value
+        .parse()
+        .map_err(|_| format!("not a number: {value:?}"))?;
     if !v.is_finite() || v < 0.0 {
         return Err(format!("not a rate: {value:?}"));
     }

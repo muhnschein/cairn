@@ -76,7 +76,9 @@ impl Request {
         let consumed = end + 4;
 
         let mut lines = block.split(|&c| c == b'\n');
-        let request_line = lines.next().ok_or(ParseError::Malformed("no request line"))?;
+        let request_line = lines
+            .next()
+            .ok_or(ParseError::Malformed("no request line"))?;
         let request_line = strip_cr(request_line)?;
         if request_line.len() > limits.max_request_line {
             return Err(ParseError::TooLong("request line"));
@@ -115,7 +117,10 @@ impl Request {
                 return Err(ParseError::Malformed("header name"));
             }
             let value = &line[colon + 1..];
-            if !value.iter().all(|&c| c == b'\t' || (0x20..0x7f).contains(&c)) {
+            if !value
+                .iter()
+                .all(|&c| c == b'\t' || (0x20..0x7f).contains(&c))
+            {
                 return Err(ParseError::Malformed("header value"));
             }
             let value = std::str::from_utf8(value)
@@ -127,12 +132,25 @@ impl Request {
             headers.push((name, value));
         }
 
-        let request = Request { method, target, path, query, headers, keep_alive: true };
+        let request = Request {
+            method,
+            target,
+            path,
+            query,
+            headers,
+            keep_alive: true,
+        };
         request.check_semantics()?;
         let keep_alive = !request
             .header("connection")
             .is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case("close")));
-        Ok((Request { keep_alive, ..request }, consumed))
+        Ok((
+            Request {
+                keep_alive,
+                ..request
+            },
+            consumed,
+        ))
     }
 
     /// First value of a header, matched case-insensitively.
@@ -144,7 +162,10 @@ impl Request {
     }
 
     fn count_header(&self, name: &str) -> usize {
-        self.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case(name)).count()
+        self.headers
+            .iter()
+            .filter(|(n, _)| n.eq_ignore_ascii_case(name))
+            .count()
     }
 
     fn check_semantics(&self) -> Result<(), ParseError> {
@@ -191,8 +212,7 @@ fn parse_request_line(line: &[u8]) -> Result<(Method, String), ParseError> {
     if !target.iter().all(|&c| (0x21..0x7f).contains(&c)) {
         return Err(ParseError::Malformed("target"));
     }
-    let target =
-        String::from_utf8(target.to_vec()).map_err(|_| ParseError::Malformed("target"))?;
+    let target = String::from_utf8(target.to_vec()).map_err(|_| ParseError::Malformed("target"))?;
     let method = match method {
         b"GET" => Method::Get,
         b"HEAD" => Method::Head,
@@ -211,7 +231,10 @@ fn strip_cr(line: &[u8]) -> Result<&[u8], ParseError> {
 
 fn find_terminator(buf: &[u8], from: usize) -> Option<usize> {
     let from = from.saturating_sub(3).min(buf.len());
-    buf.get(from..)?.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + from)
+    buf.get(from..)?
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| i + from)
 }
 
 #[cfg(test)]
@@ -242,7 +265,10 @@ mod tests {
 
     #[test]
     fn incomplete_requests_ask_for_more() {
-        assert_eq!(parse("GET / HTTP/1.1\r\nHost: c\r\n"), Err(ParseError::Incomplete));
+        assert_eq!(
+            parse("GET / HTTP/1.1\r\nHost: c\r\n"),
+            Err(ParseError::Incomplete)
+        );
         assert_eq!(parse(""), Err(ParseError::Incomplete));
     }
 
@@ -274,7 +300,10 @@ mod tests {
             parse("GET / HTTP/1.1\r\nHost: c\r\nX: a\r\n b\r\n\r\n"),
             Err(ParseError::Malformed("folded header"))
         );
-        assert_eq!(parse("GET / HTTP/1.1\r\n\r\n"), Err(ParseError::Malformed("missing host")));
+        assert_eq!(
+            parse("GET / HTTP/1.1\r\n\r\n"),
+            Err(ParseError::Malformed("missing host"))
+        );
     }
 
     #[test]
@@ -303,12 +332,18 @@ mod tests {
             parse("GET http://evil/ HTTP/1.1\r\nHost: c\r\n\r\n"),
             Err(ParseError::Malformed("target"))
         );
-        assert_eq!(parse("OPTIONS * HTTP/1.1\r\nHost: c\r\n\r\n"), Err(ParseError::Malformed("target")));
+        assert_eq!(
+            parse("OPTIONS * HTTP/1.1\r\nHost: c\r\n\r\n"),
+            Err(ParseError::Malformed("target"))
+        );
     }
 
     #[test]
     fn enforces_bounds() {
-        let limits = Limits { max_headers: 2, ..Limits::default() };
+        let limits = Limits {
+            max_headers: 2,
+            ..Limits::default()
+        };
         let raw = "GET / HTTP/1.1\r\nHost: c\r\nA: 1\r\nB: 2\r\n\r\n";
         assert_eq!(
             Request::parse(raw.as_bytes(), &limits),
@@ -318,7 +353,10 @@ mod tests {
         let long = format!("GET /{} HTTP/1.1\r\nHost: c\r\n\r\n", "a".repeat(9000));
         assert_eq!(parse(&long), Err(ParseError::TooLong("request line")));
 
-        let many = format!("GET / HTTP/1.1\r\nHost: c\r\nX: {}\r\n\r\n", "a".repeat(20000));
+        let many = format!(
+            "GET / HTTP/1.1\r\nHost: c\r\nX: {}\r\n\r\n",
+            "a".repeat(20000)
+        );
         assert_eq!(parse(&many), Err(ParseError::TooLong("headers")));
     }
 
@@ -339,10 +377,15 @@ mod tests {
 
     #[test]
     fn embedded_nul_and_control_bytes_are_refused() {
-        assert!(Request::parse(b"GET /a\0b HTTP/1.1\r\nHost: c\r\n\r\n", &Limits::default()).is_err());
         assert!(
-            Request::parse(b"GET / HTTP/1.1\r\nHost: c\r\nX: a\0b\r\n\r\n", &Limits::default())
-                .is_err()
+            Request::parse(b"GET /a\0b HTTP/1.1\r\nHost: c\r\n\r\n", &Limits::default()).is_err()
+        );
+        assert!(
+            Request::parse(
+                b"GET / HTTP/1.1\r\nHost: c\r\nX: a\0b\r\n\r\n",
+                &Limits::default()
+            )
+            .is_err()
         );
     }
 

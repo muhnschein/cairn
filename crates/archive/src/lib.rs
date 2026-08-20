@@ -61,7 +61,10 @@ pub struct Blob {
 impl Blob {
     /// The blob's bytes, empty if the range no longer fits its backing store.
     pub fn as_slice(&self) -> &[u8] {
-        (*self.data).as_ref().get(self.start..self.end).unwrap_or(&[])
+        (*self.data)
+            .as_ref()
+            .get(self.start..self.end)
+            .unwrap_or(&[])
     }
 
     /// Blob length in bytes.
@@ -150,18 +153,30 @@ impl Archive {
     /// The mapping lives as long as the `Archive`. Replacing or truncating the
     /// file underneath a running daemon faults on access; see `cairnd(8)`.
     pub fn open(path: &Path, limits: &Limits) -> Result<Archive, OpenError> {
-        let file = File::open(path).map_err(|e| OpenError::Io { path: path.into(), source: e })?;
+        let file = File::open(path).map_err(|e| OpenError::Io {
+            path: path.into(),
+            source: e,
+        })?;
         // SAFETY: the mapping is read-only and the file is required to be
         // immutable for the daemon's lifetime; that constraint is documented in
         // cairnd(8) and enforced in deployment by a read-only mount. A file
         // changed anyway faults with SIGBUS, which cairn does not catch.
-        let map = unsafe { Mmap::map(&file) }
-            .map_err(|e| OpenError::Io { path: path.into(), source: e })?;
+        let map = unsafe { Mmap::map(&file) }.map_err(|e| OpenError::Io {
+            path: path.into(),
+            source: e,
+        })?;
         // Entry reads are scattered; readahead would only evict useful pages.
         let _ = map.advise(Advice::Random);
-        let layout = Layout::parse(&map)
-            .map_err(|e| OpenError::Format { path: path.into(), source: e })?;
-        let mut archive = Archive { path: path.into(), map, layout, title: String::new() };
+        let layout = Layout::parse(&map).map_err(|e| OpenError::Format {
+            path: path.into(),
+            source: e,
+        })?;
+        let mut archive = Archive {
+            path: path.into(),
+            map,
+            layout,
+            title: String::new(),
+        };
         archive.title = archive.read_title(limits);
         Ok(archive)
     }
@@ -278,7 +293,9 @@ impl Archive {
             {
                 return Ok(path);
             }
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
         }
         Err(LookupError::NoSuchEntry)
     }
@@ -361,13 +378,13 @@ impl Catalog {
     /// fails the whole catalog rather than picking one silently.
     pub fn open_dir(dir: &Path, limits: Limits) -> Result<Catalog, OpenError> {
         let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
-            .map_err(|e| OpenError::Io { path: dir.into(), source: e })?
+            .map_err(|e| OpenError::Io {
+                path: dir.into(),
+                source: e,
+            })?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| {
-                p.is_file()
-                    && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zim"))
-            })
+            .filter(|p| p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zim")))
             .collect();
         paths.sort();
 
@@ -388,7 +405,12 @@ impl Catalog {
             archives.push(Arc::new(archive));
         }
         let cache = ClusterCache::new(limits.cache_bytes);
-        Ok(Catalog { archives, index, cache, limits })
+        Ok(Catalog {
+            archives,
+            index,
+            cache,
+            limits,
+        })
     }
 
     /// A catalog over already-open archives. Used by tests.
@@ -408,7 +430,12 @@ impl Catalog {
             out.push(Arc::new(archive));
         }
         let cache = ClusterCache::new(limits.cache_bytes);
-        Ok(Catalog { archives: out, index, cache, limits })
+        Ok(Catalog {
+            archives: out,
+            index,
+            cache,
+            limits,
+        })
     }
 
     /// Open archives, in the order they were opened.
@@ -472,7 +499,11 @@ impl Catalog {
             .map(|m| String::from_utf8_lossy(m).into_owned())
             .unwrap_or_default();
         let blob = self.blob(slot, archive, cluster, blob)?;
-        Ok(Entry { path: archive.path_of(target)?, mime, blob })
+        Ok(Entry {
+            path: archive.path_of(target)?,
+            mime,
+            blob,
+        })
     }
 
     fn blob(
@@ -491,7 +522,11 @@ impl Catalog {
             let c = zim.cluster(cluster, self.limits.max_cluster_bytes)?;
             let (s, e) = c.blob_range(blob)?;
             let base = start + 1;
-            return Ok(Blob { data: Arc::clone(archive) as Bytes, start: base + s, end: base + e });
+            return Ok(Blob {
+                data: Arc::clone(archive) as Bytes,
+                start: base + s,
+                end: base + e,
+            });
         }
 
         let key = (slot, cluster);
@@ -500,12 +535,18 @@ impl Catalog {
             None => {
                 // Decoding outside the lock can duplicate work under a race; a
                 // lock held across decompression would serialize every worker.
-                let decoded = zim.cluster(cluster, self.limits.max_cluster_bytes)?.into_body();
+                let decoded = zim
+                    .cluster(cluster, self.limits.max_cluster_bytes)?
+                    .into_body();
                 self.cache.insert(key, decoded, offset_size)
             }
         };
         let c = Cluster::from_cached(&body, offset_size)?;
         let (s, e) = c.blob_range(blob)?;
-        Ok(Blob { data: body as Bytes, start: s, end: e })
+        Ok(Blob {
+            data: body as Bytes,
+            start: s,
+            end: e,
+        })
     }
 }

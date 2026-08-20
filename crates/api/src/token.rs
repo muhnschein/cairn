@@ -60,7 +60,10 @@ mod tests {
     #[test]
     fn keeps_ordinary_types() {
         assert_eq!(content_type("text/html"), "text/html");
-        assert_eq!(content_type("text/html; charset=utf-8"), "text/html; charset=utf-8");
+        assert_eq!(
+            content_type("text/html; charset=utf-8"),
+            "text/html; charset=utf-8"
+        );
         assert_eq!(content_type("image/svg+xml"), "image/svg+xml");
     }
 

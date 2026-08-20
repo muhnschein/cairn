@@ -36,7 +36,11 @@ impl<'a> Cluster<'a> {
 
     fn from_body(body: Cow<'a, [u8]>, offset_size: usize) -> Result<Cluster<'a>> {
         if body.is_empty() {
-            return Ok(Cluster { body, offset_size, blob_count: 0 });
+            return Ok(Cluster {
+                body,
+                offset_size,
+                blob_count: 0,
+            });
         }
         let first = read_offset(&body, 0, offset_size).ok_or(Error::Cluster("no offset table"))?;
         let first = usize::try_from(first).map_err(|_| Error::Cluster("offset overflow"))?;
@@ -44,7 +48,11 @@ impl<'a> Cluster<'a> {
             return Err(Error::Cluster("bad first offset"));
         }
         let blob_count = (first / offset_size - 1) as u32;
-        Ok(Cluster { body, offset_size, blob_count })
+        Ok(Cluster {
+            body,
+            offset_size,
+            blob_count,
+        })
     }
 
     /// Number of blobs in the cluster.
@@ -77,7 +85,9 @@ impl<'a> Cluster<'a> {
     /// Bytes of blob `index`.
     pub fn blob(&self, index: u32) -> Result<&[u8]> {
         let (start, end) = self.blob_range(index)?;
-        self.body.get(start..end).ok_or(Error::Cluster("blob outside body"))
+        self.body
+            .get(start..end)
+            .ok_or(Error::Cluster("blob outside body"))
     }
 
     /// The whole body, offset table included.
@@ -177,7 +187,10 @@ mod tests {
     fn bad_first_offset_is_refused() {
         let mut raw = uncompressed(&[b"alpha"]);
         raw[1..5].copy_from_slice(&3u32.to_le_bytes()); // not a multiple of 4
-        assert_eq!(Cluster::parse(&raw, 1 << 20), Err(Error::Cluster("bad first offset")));
+        assert_eq!(
+            Cluster::parse(&raw, 1 << 20),
+            Err(Error::Cluster("bad first offset"))
+        );
     }
 
     #[test]

@@ -17,7 +17,9 @@ pub(crate) fn u32le(b: &[u8], off: usize) -> Option<u32> {
 
 pub(crate) fn u64le(b: &[u8], off: usize) -> Option<u64> {
     let s = slice(b, off, 8)?;
-    Some(u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
+    Some(u64::from_le_bytes([
+        s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7],
+    ]))
 }
 
 /// `u64` file offset narrowed to `usize`, or `None` if it cannot be one.

@@ -22,8 +22,16 @@ pub fn decode(raw: &str) -> Result<String, DecodeError> {
     while i < b.len() {
         match b[i] {
             b'%' => {
-                let hi = b.get(i + 1).copied().and_then(hex).ok_or(DecodeError::BadEscape)?;
-                let lo = b.get(i + 2).copied().and_then(hex).ok_or(DecodeError::BadEscape)?;
+                let hi = b
+                    .get(i + 1)
+                    .copied()
+                    .and_then(hex)
+                    .ok_or(DecodeError::BadEscape)?;
+                let lo = b
+                    .get(i + 2)
+                    .copied()
+                    .and_then(hex)
+                    .ok_or(DecodeError::BadEscape)?;
                 let byte = (hi << 4) | lo;
                 if byte == 0 || byte < 0x20 || byte == 0x7f {
                     return Err(DecodeError::ForbiddenByte);
@@ -58,10 +66,25 @@ pub fn encode_header_value(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for &byte in s.as_bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':'
-            | b'@' | b'!' | b'$' | b'(' | b')' | b'*' | b'+' | b',' | b'=' | b'\'' => {
-                out.push(byte as char)
-            }
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'.'
+            | b'_'
+            | b'~'
+            | b'/'
+            | b':'
+            | b'@'
+            | b'!'
+            | b'$'
+            | b'('
+            | b')'
+            | b'*'
+            | b'+'
+            | b','
+            | b'='
+            | b'\'' => out.push(byte as char),
             other => out.push_str(&format!("%{other:02X}")),
         }
     }

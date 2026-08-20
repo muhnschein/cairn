@@ -1,0 +1,91 @@
+.Dd August 20, 2026
+.Dt CAIRN 1
+.Os
+.Sh NAME
+.Nm cairn
+.Nd control and query a cairnd daemon
+.Sh SYNOPSIS
+.Nm
+.Op Fl s Ar path | Fl a Ar addr
+.Op Fl t Ar token
+.Op Fl -timeout Ar secs
+.Ar command
+.Op Ar arg ...
+.Sh DESCRIPTION
+.Nm
+speaks the same HTTP API as any other client, over the local socket.
+It has no privileged access and no side channel: anything it can do,
+.Xr curl 1
+can do.
+Metadata commands print the JSON they received;
+.Cm get
+writes entry bytes to standard output.
+.Pp
+The options are:
+.Bl -tag -width "-a addr"
+.It Fl s , Fl -socket Ar path
+Unix socket.
+Default
+.Pa /run/cairn/cairn.sock .
+.It Fl a , Fl -address Ar addr
+Loopback TCP address instead of a socket.
+.It Fl t , Fl -token Ar token
+Bearer token, when the daemon requires one.
+.It Fl -timeout Ar secs
+Read and write timeout.
+Default 30.
+.It Fl V , Fl -version
+Print the version and exit.
+.It Fl h , Fl -help
+Print usage and exit.
+.El
+.Sh COMMANDS
+.Bl -tag -width Ds
+.It Cm status
+Daemon state, and the confinement actually applied.
+Read this before trusting a deployment: it is where you learn that Landlock or
+seccomp did not take.
+.It Cm archives
+Open archives, with their uuids.
+The uuid is the id used everywhere else.
+.It Cm archive Ar uuid
+One archive and its metadata.
+.It Cm get Ar uuid path
+Entry content, to standard output.
+Redirects are followed by the daemon.
+.It Cm head Ar uuid path
+Response headers only, including the resolved path.
+.It Cm suggest Ar uuid query Op Ar limit
+Title-prefix suggestions.
+Matching is byte-exact on the stored title.
+.It Cm random Ar uuid
+One random entry path.
+.It Cm raw Ar method target
+Any request target, for debugging.
+.El
+.Sh EXIT STATUS
+.Bl -tag -width Ds -compact
+.It 0
+The request succeeded.
+.It 1
+The daemon answered with an error status, or could not be reached.
+The error document is printed.
+.It 2
+Usage error.
+.El
+.Sh EXAMPLES
+.Bd -literal -offset indent
+$ cairn status | jq .sandbox
+$ cairn archives | jq -r '.archives[] | "\e(.uuid) \e(.title)"'
+$ cairn get 8b1f9c2e-... index.html > index.html
+$ cairn suggest 8b1f9c2e-... Rhino 5
+.Ed
+.Pp
+Against a daemon on loopback with a token:
+.Bd -literal -offset indent
+$ cairn -a 127.0.0.1:8320 -t "$(cat /etc/cairn/token)" status
+.Ed
+.Sh SEE ALSO
+.Xr cairn.conf 5 ,
+.Xr cairn-api 7 ,
+.Xr cairnd 8

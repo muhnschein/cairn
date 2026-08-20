@@ -122,6 +122,8 @@ pub fn allowed_syscalls() -> Vec<libc::c_long> {
         libc::SYS_set_robust_list,
         libc::SYS_rseq,
         libc::SYS_membarrier,
+        // glibc sizes a new malloc arena the first time a worker allocates.
+        libc::SYS_sched_getaffinity,
         // Time and randomness.
         libc::SYS_clock_gettime,
         libc::SYS_clock_nanosleep,
@@ -177,23 +179,68 @@ struct Prog {
 /// Build the filter program: check the architecture, then the allowlist.
 fn program(allowed: &[libc::c_long], action: Action) -> Vec<Insn> {
     let mut p = Vec::with_capacity(allowed.len() * 2 + 8);
-    p.push(Insn { code: LD_W_ABS, jt: 0, jf: 0, k: OFF_ARCH });
-    p.push(Insn { code: JMP_JEQ_K, jt: 1, jf: 0, k: AUDIT_ARCH });
-    p.push(Insn { code: RET_K, jt: 0, jf: 0, k: RET_KILL_PROCESS });
-    p.push(Insn { code: LD_W_ABS, jt: 0, jf: 0, k: OFF_NR });
+    p.push(Insn {
+        code: LD_W_ABS,
+        jt: 0,
+        jf: 0,
+        k: OFF_ARCH,
+    });
+    p.push(Insn {
+        code: JMP_JEQ_K,
+        jt: 1,
+        jf: 0,
+        k: AUDIT_ARCH,
+    });
+    p.push(Insn {
+        code: RET_K,
+        jt: 0,
+        jf: 0,
+        k: RET_KILL_PROCESS,
+    });
+    p.push(Insn {
+        code: LD_W_ABS,
+        jt: 0,
+        jf: 0,
+        k: OFF_NR,
+    });
     #[cfg(target_arch = "x86_64")]
     {
         // The x32 ABI reuses syscall numbers with a high bit set.
-        p.push(Insn { code: JMP_JGE_K, jt: 0, jf: 1, k: X32_SYSCALL_BIT });
-        p.push(Insn { code: RET_K, jt: 0, jf: 0, k: RET_KILL_PROCESS });
+        p.push(Insn {
+            code: JMP_JGE_K,
+            jt: 0,
+            jf: 1,
+            k: X32_SYSCALL_BIT,
+        });
+        p.push(Insn {
+            code: RET_K,
+            jt: 0,
+            jf: 0,
+            k: RET_KILL_PROCESS,
+        });
     }
     for &nr in allowed {
         // Two instructions per syscall keeps every jump offset at 0 or 1, so
         // the list can grow without overflowing an 8-bit jump.
-        p.push(Insn { code: JMP_JEQ_K, jt: 0, jf: 1, k: nr as u32 });
-        p.push(Insn { code: RET_K, jt: 0, jf: 0, k: RET_ALLOW });
+        p.push(Insn {
+            code: JMP_JEQ_K,
+            jt: 0,
+            jf: 1,
+            k: nr as u32,
+        });
+        p.push(Insn {
+            code: RET_K,
+            jt: 0,
+            jf: 0,
+            k: RET_ALLOW,
+        });
     }
-    p.push(Insn { code: RET_K, jt: 0, jf: 0, k: action.ret() });
+    p.push(Insn {
+        code: RET_K,
+        jt: 0,
+        jf: 0,
+        k: action.ret(),
+    });
     p
 }
 
@@ -201,7 +248,11 @@ fn program(allowed: &[libc::c_long], action: Action) -> Vec<Insn> {
 pub fn set_no_new_privs() -> Result<(), std::io::Error> {
     // SAFETY: prctl with PR_SET_NO_NEW_PRIVS takes scalar arguments only.
     let rc = unsafe { libc::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
-    if rc != 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+    if rc != 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 /// Install the filter on every thread in the process.
@@ -210,7 +261,10 @@ pub fn set_no_new_privs() -> Result<(), std::io::Error> {
 /// calling thread would leave every worker unconfined.
 pub fn install(allowed: &[libc::c_long], action: Action) -> Result<usize, std::io::Error> {
     let insns = program(allowed, action);
-    let prog = Prog { len: insns.len() as u16, filter: insns.as_ptr() };
+    let prog = Prog {
+        len: insns.len() as u16,
+        filter: insns.as_ptr(),
+    };
     // SAFETY: `insns` outlives the call, `prog.len` matches its length, and
     // the filter is a well-formed classic BPF program ending in a return.
     let rc = unsafe {
@@ -258,8 +312,16 @@ mod tests {
     #[test]
     fn the_list_denies_what_it_must() {
         let allowed = allowed_syscalls();
-        for denied in [libc::SYS_openat, libc::SYS_execve, libc::SYS_socket, libc::SYS_connect] {
-            assert!(!allowed.contains(&denied), "syscall {denied} must not be allowed");
+        for denied in [
+            libc::SYS_openat,
+            libc::SYS_execve,
+            libc::SYS_socket,
+            libc::SYS_connect,
+        ] {
+            assert!(
+                !allowed.contains(&denied),
+                "syscall {denied} must not be allowed"
+            );
         }
         assert!(allowed.contains(&libc::SYS_read));
         assert!(allowed.contains(&libc::SYS_accept4));

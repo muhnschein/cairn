@@ -94,7 +94,12 @@ fn serve(config: Config, check: bool) -> Result<i32, Box<dyn std::error::Error>>
     let catalog = archive::Catalog::open_dir(&config.archive_dir, config.archive_limits())?;
     for a in catalog.archives() {
         let s = a.summary();
-        info!("opened {} as {} ({} entries)", a.path().display(), s.uuid, s.entry_count);
+        info!(
+            "opened {} as {} ({} entries)",
+            a.path().display(),
+            s.uuid,
+            s.entry_count
+        );
     }
     if catalog.archives().is_empty() {
         warn!("no archives in {}", config.archive_dir.display());
@@ -117,7 +122,12 @@ fn serve(config: Config, check: bool) -> Result<i32, Box<dyn std::error::Error>>
     // 3. Workers, while the process can still create threads.
     let metrics = Arc::new(Metrics::default());
     let gate = Arc::new(Gate::new());
-    let workers = spawn_workers(Arc::clone(&listener), Arc::clone(&gate), config.max_connections)?;
+    let workers = spawn_workers(
+        Arc::clone(&listener),
+        Arc::clone(&gate),
+        config.max_connections,
+    )?;
+    gate.wait_for_workers(config.max_connections);
 
     let seed = random_seed();
 

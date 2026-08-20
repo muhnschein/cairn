@@ -47,7 +47,10 @@ pub struct ClusterCache {
 impl ClusterCache {
     /// A cache holding at most `budget` bytes of decompressed cluster bodies.
     pub fn new(budget: usize) -> ClusterCache {
-        ClusterCache { inner: Mutex::new(Inner::default()), budget }
+        ClusterCache {
+            inner: Mutex::new(Inner::default()),
+            budget,
+        }
     }
 
     /// Look up a cluster body, counting the hit or miss.
@@ -85,7 +88,14 @@ impl ClusterCache {
             inner.bytes -= old.body.len();
         }
         inner.bytes += body.len();
-        inner.slots.insert(key, Slot { body: Arc::clone(&body), offset_size, last: tick });
+        inner.slots.insert(
+            key,
+            Slot {
+                body: Arc::clone(&body),
+                offset_size,
+                last: tick,
+            },
+        );
         while inner.bytes > self.budget {
             // The slot count is bounded by budget / cluster size, so this scan is short.
             let Some(&victim) = inner
@@ -110,7 +120,12 @@ impl ClusterCache {
     /// Drop everything cached for one archive.
     pub fn forget_archive(&self, archive: usize) {
         let mut inner = self.lock();
-        let keys: Vec<Key> = inner.slots.keys().copied().filter(|(a, _)| *a == archive).collect();
+        let keys: Vec<Key> = inner
+            .slots
+            .keys()
+            .copied()
+            .filter(|(a, _)| *a == archive)
+            .collect();
         for k in keys {
             if let Some(old) = inner.slots.remove(&k) {
                 inner.bytes -= old.body.len();

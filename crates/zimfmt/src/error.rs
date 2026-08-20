@@ -4,7 +4,11 @@ use core::fmt;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// A read ran past the end of the file.
-    Truncated { what: &'static str, need: u64, have: u64 },
+    Truncated {
+        what: &'static str,
+        need: u64,
+        have: u64,
+    },
     /// Magic number is not [`crate::MAGIC`].
     BadMagic(u32),
     /// Major version outside the supported range.

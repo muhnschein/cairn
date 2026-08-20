@@ -37,8 +37,7 @@ impl<'a> Dirent<'a> {
     /// Parse the entry at `off`. Every field is checked against `bytes`.
     pub fn parse(bytes: &'a [u8], off: usize) -> Result<Dirent<'a>> {
         let mime_index = u16le(bytes, off).ok_or(Error::Dirent("header past EOF"))?;
-        let parameter_len =
-            *bytes.get(off + 2).ok_or(Error::Dirent("header past EOF"))? as usize;
+        let parameter_len = *bytes.get(off + 2).ok_or(Error::Dirent("header past EOF"))? as usize;
         let namespace = *bytes.get(off + 3).ok_or(Error::Dirent("header past EOF"))?;
         let revision = u32le(bytes, off + 4).ok_or(Error::Dirent("header past EOF"))?;
 
@@ -60,12 +59,23 @@ impl<'a> Dirent<'a> {
         // The parameter block is skipped, but it must be present.
         slice(bytes, after_title, parameter_len).ok_or(Error::Dirent("parameter past EOF"))?;
 
-        Ok(Dirent { mime_index, namespace, revision, target, url, title })
+        Ok(Dirent {
+            mime_index,
+            namespace,
+            revision,
+            target,
+            url,
+            title,
+        })
     }
 
     /// Title if the entry has one, else the URL — the ZIM convention.
     pub fn effective_title(&self) -> &'a [u8] {
-        if self.title.is_empty() { self.url } else { self.title }
+        if self.title.is_empty() {
+            self.url
+        } else {
+            self.title
+        }
     }
 
     /// Sort key of the URL pointer list: namespace first, then URL bytes.
@@ -82,7 +92,9 @@ impl<'a> Dirent<'a> {
 /// Read a NUL-terminated string, returning it and the offset just past the NUL.
 fn cstr<'a>(bytes: &'a [u8], off: usize, what: &'static str) -> Result<(&'a [u8], usize)> {
     let rest = bytes.get(off..).ok_or(Error::Dirent(what))?;
-    let window = rest.get(..MAX_STRING.min(rest.len())).ok_or(Error::Dirent(what))?;
+    let window = rest
+        .get(..MAX_STRING.min(rest.len()))
+        .ok_or(Error::Dirent(what))?;
     match window.iter().position(|&c| c == 0) {
         Some(n) => Ok((&window[..n], off + n + 1)),
         None if rest.len() > MAX_STRING => Err(Error::Dirent("string too long")),
@@ -111,7 +123,13 @@ mod tests {
     fn parses_content() {
         let d = content_dirent();
         let e = Dirent::parse(&d, 0).unwrap();
-        assert_eq!(e.target, Target::Content { cluster: 7, blob: 3 });
+        assert_eq!(
+            e.target,
+            Target::Content {
+                cluster: 7,
+                blob: 3
+            }
+        );
         assert_eq!(e.namespace, b'C');
         assert_eq!(e.url, b"index.html");
         assert_eq!(e.effective_title(), b"Main Page");
@@ -134,7 +152,10 @@ mod tests {
     fn truncation_is_an_error_not_a_panic() {
         let d = content_dirent();
         for n in 0..d.len() {
-            assert!(Dirent::parse(&d[..n], 0).is_err(), "prefix of {n} bytes parsed");
+            assert!(
+                Dirent::parse(&d[..n], 0).is_err(),
+                "prefix of {n} bytes parsed"
+            );
         }
     }
 

@@ -43,7 +43,9 @@ pub struct Router {
 
 impl std::fmt::Debug for Router {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Router").field("limits", &self.limits).finish_non_exhaustive()
+        f.debug_struct("Router")
+            .field("limits", &self.limits)
+            .finish_non_exhaustive()
     }
 }
 
@@ -56,7 +58,13 @@ impl Router {
         status: Box<dyn Fn() -> Status + Send + Sync>,
         seed: u64,
     ) -> Router {
-        Router { catalog, limits, policy, status, rng: AtomicU64::new(seed) }
+        Router {
+            catalog,
+            limits,
+            policy,
+            status,
+            rng: AtomicU64::new(seed),
+        }
     }
 
     /// Limits in force.
@@ -173,7 +181,10 @@ impl Router {
         j.field_number("max_headers", self.limits.max_headers as u64);
         j.field_number("max_path_bytes", self.limits.max_path_bytes as u64);
         j.field_number("suggest_max_query", self.limits.suggest_max_query as u64);
-        j.field_number("suggest_max_results", self.limits.suggest_max_results as u64);
+        j.field_number(
+            "suggest_max_results",
+            self.limits.suggest_max_results as u64,
+        );
         j.end_object();
 
         j.end_object();
@@ -199,7 +210,10 @@ impl Router {
             Ok(s) => s,
             Err(e) => return fault_for(e).response(),
         };
-        let metadata = self.catalog.metadata(uuid).unwrap_or_else(|_| Metadata::default());
+        let metadata = self
+            .catalog
+            .metadata(uuid)
+            .unwrap_or_else(|_| Metadata::default());
         let mut j = Json::new();
         j.begin_object();
         summary_fields(&mut j, &summary);
@@ -294,7 +308,10 @@ impl Router {
         };
 
         let len = entry.body.len() as u64;
-        let requested = req.header("range").map(|v| range::parse(v, len)).unwrap_or(Range::Whole);
+        let requested = req
+            .header("range")
+            .map(|v| range::parse(v, len))
+            .unwrap_or(Range::Whole);
         let mut response = match requested {
             Range::Unsatisfiable => Fault::RangeNotSatisfiable
                 .response()
@@ -314,7 +331,10 @@ impl Router {
             .header("X-Cairn-Path", percent::encode_header_value(&entry.path))
             .header("X-Content-Type-Options", "nosniff")
             .header("Cross-Origin-Resource-Policy", "same-origin")
-            .header("Content-Security-Policy", self.policy.content_security_policy.clone())
+            .header(
+                "Content-Security-Policy",
+                self.policy.content_security_policy.clone(),
+            )
     }
 
     fn next_random(&self) -> u64 {
@@ -336,12 +356,17 @@ fn summary_fields(j: &mut Json, a: &crate::catalog::ArchiveSummary) {
         Some(p) => j.field("main_page", p),
         None => j.key("main_page").null(),
     };
-    j.field("format_version", &format!("{}.{}", a.major_version, a.minor_version));
+    j.field(
+        "format_version",
+        &format!("{}.{}", a.major_version, a.minor_version),
+    );
     j.field("content_namespace", &a.content_namespace.to_string());
 }
 
 fn ok_json(j: Json) -> Response {
-    Response::new(200).header("X-Content-Type-Options", "nosniff").json(j.into_bytes())
+    Response::new(200)
+        .header("X-Content-Type-Options", "nosniff")
+        .json(j.into_bytes())
 }
 
 fn fault_for(e: CatalogError) -> Fault {

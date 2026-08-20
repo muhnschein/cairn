@@ -20,7 +20,10 @@ impl SharedBytes {
 
     /// The bytes, empty if the range no longer fits its backing store.
     pub fn as_slice(&self) -> &[u8] {
-        (*self.data).as_ref().get(self.start..self.end).unwrap_or(&[])
+        (*self.data)
+            .as_ref()
+            .get(self.start..self.end)
+            .unwrap_or(&[])
     }
 
     /// Narrow to a sub-range, for `Range` responses.
@@ -29,7 +32,11 @@ impl SharedBytes {
         let to = usize::try_from(to).unwrap_or(usize::MAX);
         let start = self.start.saturating_add(from).min(self.end);
         let end = self.start.saturating_add(to).min(self.end);
-        SharedBytes { data: Arc::clone(&self.data), start, end: end.max(start) }
+        SharedBytes {
+            data: Arc::clone(&self.data),
+            start,
+            end: end.max(start),
+        }
     }
 
     /// Length in bytes.
@@ -45,7 +52,9 @@ impl SharedBytes {
 
 impl std::fmt::Debug for SharedBytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SharedBytes").field("len", &self.len()).finish()
+        f.debug_struct("SharedBytes")
+            .field("len", &self.len())
+            .finish()
     }
 }
 
@@ -122,7 +131,8 @@ impl Response {
 
     /// A JSON body with the right content type.
     pub fn json(self, bytes: Vec<u8>) -> Response {
-        self.header("Content-Type", "application/json").body(Payload::Owned(bytes))
+        self.header("Content-Type", "application/json")
+            .body(Payload::Owned(bytes))
     }
 
     /// Serialize the status line and headers.
@@ -143,7 +153,11 @@ impl Response {
         out.push_str(&self.payload.len().to_string());
         out.push_str("\r\n");
         out.push_str("Connection: ");
-        out.push_str(if self.keep_alive { "keep-alive" } else { "close" });
+        out.push_str(if self.keep_alive {
+            "keep-alive"
+        } else {
+            "close"
+        });
         out.push_str("\r\n\r\n");
         out.into_bytes()
     }

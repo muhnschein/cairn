@@ -1,0 +1,181 @@
+.Dd August 20, 2026
+.Dt CAIRND 8
+.Os
+.Sh NAME
+.Nm cairnd
+.Nd serve ZIM archives over a local HTTP API
+.Sh SYNOPSIS
+.Nm
+.Op Fl c Ar file
+.Op Fl -check
+.Op Fl V
+.Op Fl h
+.Sh DESCRIPTION
+.Nm
+opens every
+.Pa *.zim
+archive in a directory, binds a local socket, confines itself, and serves the
+API described in
+.Xr cairn-api 7 .
+It never writes to an archive and holds no write capability to any path once
+initialization is over.
+.Pp
+The options are:
+.Bl -tag -width "-c file"
+.It Fl c , Fl -config Ar file
+Configuration file.
+Without this,
+.Pa /etc/cairn/cairn.conf
+is used if it exists, and built-in defaults otherwise.
+An explicitly named file must exist.
+.It Fl -check
+Parse the configuration, open every archive, report what was found, and exit.
+Nothing is bound and nothing is served.
+Use it before restarting a running daemon.
+.It Fl V , Fl -version
+Print the version and exit.
+.It Fl h , Fl -help
+Print usage and exit.
+.El
+.Sh STARTUP ORDER
+The order is the security property, not an implementation detail:
+.Bl -enum -compact
+.It
+Archives are opened and mapped, while the process can still open files.
+An unreadable or malformed archive, or two archives sharing a UUID, is a
+startup error naming the files.
+.It
+The listener is bound, while the process can still bind.
+.It
+Worker threads are created and parked, while the process can still create
+threads.
+.It
+The process confines itself
+.Pq Sx CONFINEMENT .
+.It
+The workers are released.
+The first request is served by an already-confined process.
+.El
+.Sh CONFINEMENT
+Three independent layers, none assuming another is present.
+What was applied is reported by
+.Pa /v1/status
+and by
+.Ql cairn status ,
+because a daemon that failed to confine itself otherwise looks identical to one
+that succeeded.
+.Bl -tag -width Ds
+.It Sy no_new_privs
+Set first; seccomp requires it and Landlock relies on it.
+.It Sy Landlock
+Read-only access to the archive directory and nothing else.
+Every filesystem right the running kernel's ABI knows about is handled and
+then not granted, so no path outside that directory is reachable and nothing
+anywhere is writable.
+On ABI 4 and later, network access is denied outright as well.
+.It Sy seccomp
+An allowlist for the serving loop, installed on every thread.
+.Ql openat ,
+.Ql clone ,
+.Ql execve ,
+.Ql socket ,
+.Ql connect
+and
+.Ql bind
+are absent: archives are already mapped, workers already exist, and the
+listener is already bound.
+A syscall outside the list kills the process by default; see
+.Ql sandbox_action
+in
+.Xr cairn.conf 5
+for the alternatives.
+.El
+.Pp
+.Ql sandbox require
+turns a partially applied sandbox into a refusal to start.
+Use it once you know the kernel supports what you asked for;
+.Ql cairn status
+tells you.
+.Sh DEPLOYMENT CONSTRAINTS
+.Bl -bullet
+.It
+.Sy Archives are immutable once opened .
+They are mapped, not read through
+.Xr pread 2 ,
+which is the right call for multi-gigabyte files.
+The consequence is accepted explicitly: if an archive is truncated or replaced
+in place under a running daemon, a load faults with
+.Dv SIGBUS ,
+which is not recoverable in safe Rust, and
+.Nm
+does not attempt to catch it.
+In practice a write whose source pages lost their backing fails with
+.Er EFAULT
+instead and the transfer is cut short, which a client sees as a body shorter
+than
+.Ql Content-Length .
+Either way the answer is never quietly wrong.
+.It
+Mount the archive directory read-only, and replace an archive by restarting.
+The units ship with
+.Ql Restart=on-failure .
+.It
+This is an availability property, not a confidentiality or integrity one:
+whoever can truncate the archive already has write access to the data
+directory and is outside the threat model.
+.El
+.Sh SIGNALS
+.Nm
+installs no handlers.
+.Dv SIGTERM
+and
+.Dv SIGINT
+terminate it, which is safe: nothing is buffered and nothing is written.
+A unix socket left behind by a killed daemon is removed at the next start,
+after a connect proves nothing is listening on it.
+Under systemd,
+.Ql RuntimeDirectory
+cleans up instead.
+.Sh LOGGING
+One line per event on standard error, which systemd captures.
+No entry content and nothing a client sent is ever logged, not even the
+request target.
+With
+.Ql access_log = on ,
+each request logs its method, status, body size and duration.
+.Sh FILES
+.Bl -tag -width "/var/lib/cairn/archives" -compact
+.It Pa /etc/cairn/cairn.conf
+Default configuration.
+.It Pa /var/lib/cairn/archives
+Default archive directory.
+.It Pa /run/cairn/cairn.sock
+Default socket.
+.El
+.Sh EXIT STATUS
+.Ex -std
+Exit status 1 covers a bad configuration, an archive that cannot be opened, a
+socket that cannot be bound, and a sandbox that did not fully apply while
+.Ql sandbox require
+is set.
+Exit status 2 is a usage error.
+.Sh EXAMPLES
+Check a configuration and see what would be served:
+.Bd -literal -offset indent
+# cairnd -c /etc/cairn/cairn.conf --check
+.Ed
+.Pp
+Run in the foreground with confinement required:
+.Bd -literal -offset indent
+# printf 'sandbox = require\enarchive_dir = /srv/zim\en' > /tmp/c.conf
+# cairnd -c /tmp/c.conf
+.Ed
+.Sh SEE ALSO
+.Xr cairn 1 ,
+.Xr seccomp 2 ,
+.Xr cairn.conf 5 ,
+.Xr cairn-api 7 ,
+.Xr landlock 7
+.Sh CAVEATS
+Pre-alpha, and unaudited.
+There is no full-text search in cairn 1.x.

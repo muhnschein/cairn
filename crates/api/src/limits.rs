@@ -46,7 +46,12 @@ pub struct RateLimiter {
 impl RateLimiter {
     /// A bucket of `burst` requests refilling at `per_second`.
     pub fn new(per_second: f64, burst: f64, now: std::time::Instant) -> RateLimiter {
-        RateLimiter { tokens: burst, burst, per_second, last: now }
+        RateLimiter {
+            tokens: burst,
+            burst,
+            per_second,
+            last: now,
+        }
     }
 
     /// Take one request's worth of budget, if there is any.
@@ -79,7 +84,10 @@ mod tests {
         assert!(r.allow(t0));
         assert!(r.allow(t0));
         assert!(!r.allow(t0), "burst is spent");
-        assert!(r.allow(t0 + Duration::from_millis(150)), "refills over time");
+        assert!(
+            r.allow(t0 + Duration::from_millis(150)),
+            "refills over time"
+        );
     }
 
     #[test]

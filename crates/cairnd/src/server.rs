@@ -34,12 +34,22 @@ pub struct Serving {
 
 /// Holds workers between `spawn` and the end of confinement.
 ///
-/// A request must never be answered by an unconfined process, so workers wait
-/// here until the sandbox report exists.
+/// Two rendezvous, in this order: every worker reports that it has finished
+/// starting up, then the main thread confines the process and opens the gate.
+/// Confinement must not land in the middle of thread startup — a worker still
+/// naming itself would take the filter's default action — and a request must
+/// never be answered by an unconfined process.
 #[derive(Debug)]
 pub struct Gate {
-    state: Mutex<Option<Arc<Serving>>>,
+    state: Mutex<State>,
     ready: Condvar,
+    started: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct State {
+    serving: Option<Arc<Serving>>,
+    workers: usize,
 }
 
 impl Default for Gate {
@@ -49,22 +59,40 @@ impl Default for Gate {
 }
 
 impl Gate {
-    /// A closed gate.
+    /// A closed gate with no workers yet.
     pub fn new() -> Gate {
-        Gate { state: Mutex::new(None), ready: Condvar::new() }
+        Gate {
+            state: Mutex::new(State::default()),
+            ready: Condvar::new(),
+            started: Condvar::new(),
+        }
+    }
+
+    /// Block until `count` workers have finished starting.
+    pub fn wait_for_workers(&self, count: usize) {
+        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        while guard.workers < count {
+            guard = self.started.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
     }
 
     /// Let the workers through.
     pub fn open(&self, serving: Arc<Serving>) {
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = Some(serving);
+        guard.serving = Some(serving);
         self.ready.notify_all();
+    }
+
+    fn arrive(&self) {
+        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        guard.workers += 1;
+        self.started.notify_all();
     }
 
     fn wait(&self) -> Arc<Serving> {
         let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
         loop {
-            if let Some(s) = guard.as_ref() {
+            if let Some(s) = guard.serving.as_ref() {
                 return Arc::clone(s);
             }
             guard = self.ready.wait(guard).unwrap_or_else(|e| e.into_inner());
@@ -93,6 +121,11 @@ pub fn spawn_workers(
 }
 
 fn worker(listener: &Listener, gate: &Gate) {
+    // Touch the allocator before reporting readiness: the first allocation in
+    // a thread can initialize a malloc arena, which is startup work, not
+    // serving work.
+    drop(Vec::<u8>::with_capacity(8 * 1024));
+    gate.arrive();
     let serving = gate.wait();
     loop {
         match listener.accept() {
@@ -115,7 +148,10 @@ fn worker(listener: &Listener, gate: &Gate) {
 fn serve_connection(serving: &Serving, mut stream: Stream) {
     let config = &serving.config;
     let limits = *serving.router.limits();
-    if stream.set_timeouts(config.read_timeout, config.write_timeout).is_err() {
+    if stream
+        .set_timeouts(config.read_timeout, config.write_timeout)
+        .is_err()
+    {
         return;
     }
 
@@ -217,13 +253,15 @@ fn read_request(
 /// Write a response. Returns false if the peer stopped reading.
 fn write_response(stream: &mut Stream, response: &Response) -> bool {
     let mut out = response.head_bytes();
-    let body = if response.send_body { response.payload.as_slice() } else { &[][..] };
+    let body = if response.send_body {
+        response.payload.as_slice()
+    } else {
+        &[][..]
+    };
     // Small bodies ride along with the head so a response is one write.
     if body.len() <= 8 * 1024 {
         out.extend_from_slice(body);
         return stream.write_all(&out).and_then(|()| stream.flush()).is_ok();
     }
-    stream.write_all(&out).is_ok()
-        && stream.write_all(body).is_ok()
-        && stream.flush().is_ok()
+    stream.write_all(&out).is_ok() && stream.write_all(body).is_ok() && stream.flush().is_ok()
 }

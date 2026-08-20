@@ -42,36 +42,57 @@ pub fn abi_version() -> Result<i32, std::io::Error> {
     // what LANDLOCK_CREATE_RULESET_VERSION requires; it returns a version
     // number and creates nothing.
     let rc = unsafe {
-        libc::syscall(SYS_CREATE_RULESET, std::ptr::null::<RulesetAttr>(), 0usize, CREATE_RULESET_VERSION)
+        libc::syscall(
+            SYS_CREATE_RULESET,
+            std::ptr::null::<RulesetAttr>(),
+            0usize,
+            CREATE_RULESET_VERSION,
+        )
     };
-    if rc < 0 { Err(std::io::Error::last_os_error()) } else { Ok(rc as i32) }
+    if rc < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(rc as i32)
+    }
 }
 
 /// Every filesystem right this ABI knows about, so all of them are denied by
 /// default and only reads are granted back.
 fn handled_fs(abi: i32) -> u64 {
     match abi {
-        1 => 0x1fff,          // through MAKE_SYM
-        2 => 0x3fff,          // + REFER
-        3 | 4 => 0x7fff,      // + TRUNCATE
-        _ => 0xffff,          // + IOCTL_DEV (ABI 5 and later)
+        1 => 0x1fff,     // through MAKE_SYM
+        2 => 0x3fff,     // + REFER
+        3 | 4 => 0x7fff, // + TRUNCATE
+        _ => 0xffff,     // + IOCTL_DEV (ABI 5 and later)
     }
 }
 
 fn handled_net(abi: i32) -> u64 {
-    if abi >= 4 { ACCESS_NET_BIND_TCP | ACCESS_NET_CONNECT_TCP } else { 0 }
+    if abi >= 4 {
+        ACCESS_NET_BIND_TCP | ACCESS_NET_CONNECT_TCP
+    } else {
+        0
+    }
 }
 
 /// Apply a read-only ruleset over `read_only`, denying everything else.
 ///
 /// `no_new_privs` must already be set. Returns the ABI version in force.
 pub fn restrict(read_only: &[&Path], abi: i32) -> Result<i32, std::io::Error> {
-    let attr = RulesetAttr { handled_access_fs: handled_fs(abi), handled_access_net: handled_net(abi) };
+    let attr = RulesetAttr {
+        handled_access_fs: handled_fs(abi),
+        handled_access_net: handled_net(abi),
+    };
     // Kernels below ABI 4 do not know the net field and reject the larger size.
-    let size = if abi >= 4 { size_of::<RulesetAttr>() } else { size_of::<u64>() };
+    let size = if abi >= 4 {
+        size_of::<RulesetAttr>()
+    } else {
+        size_of::<u64>()
+    };
 
     // SAFETY: `attr` outlives the call and `size` matches what this ABI accepts.
-    let ruleset = unsafe { libc::syscall(SYS_CREATE_RULESET, &attr as *const RulesetAttr, size, 0u32) };
+    let ruleset =
+        unsafe { libc::syscall(SYS_CREATE_RULESET, &attr as *const RulesetAttr, size, 0u32) };
     if ruleset < 0 {
         return Err(std::io::Error::last_os_error());
     }
@@ -93,7 +114,13 @@ pub fn restrict(read_only: &[&Path], abi: i32) -> Result<i32, std::io::Error> {
         };
         // SAFETY: `rule` describes the fd held open by `parent` and outlives the call.
         let rc = unsafe {
-            libc::syscall(SYS_ADD_RULE, ruleset, RULE_PATH_BENEATH, &rule as *const PathBeneathAttr, 0u32)
+            libc::syscall(
+                SYS_ADD_RULE,
+                ruleset,
+                RULE_PATH_BENEATH,
+                &rule as *const PathBeneathAttr,
+                0u32,
+            )
         };
         drop(parent);
         if rc < 0 {
