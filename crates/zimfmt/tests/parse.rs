@@ -15,9 +15,10 @@ fn reads_a_sample_archive() {
     let (layout, _) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
 
-    assert_eq!(zim.entry_count(), 4);
+    assert_eq!(zim.entry_count(), 7);
     assert_eq!(zim.header().content_namespace(), b'C');
     assert_eq!(zim.mime(0), Some(&b"text/html"[..]));
+    assert!(zim.find(b'M', b"Title").unwrap().is_some());
 
     let idx = zim.find(b'C', b"index.html").unwrap().expect("index.html");
     let d = zim.dirent(idx).unwrap();

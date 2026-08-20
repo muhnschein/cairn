@@ -78,24 +78,22 @@ impl<'a> Zim<'a> {
         Ok(index)
     }
 
-    /// Raw bytes of cluster `index`, info byte first.
-    pub fn cluster_raw(&self, index: u32) -> Result<&'a [u8]> {
+    /// Absolute byte extent of cluster `index` within the file.
+    pub fn cluster_extent(&self, index: u32) -> Result<(usize, usize)> {
         if index >= self.cluster_count() {
             return Err(Error::ClusterIndex(index));
         }
         let base = self.header().cluster_ptr_pos;
-        let start = u64le(self.bytes, to_usize(base + u64::from(index) * 8).ok_or(
-            Error::ClusterIndex(index),
-        )?)
-        .ok_or(Error::ClusterIndex(index))?;
-        let end = if index + 1 < self.cluster_count() {
-            u64le(self.bytes, to_usize(base + u64::from(index + 1) * 8).ok_or(
-                Error::ClusterIndex(index),
-            )?)
-            .ok_or(Error::ClusterIndex(index))?
-        } else {
-            self.layout.data_end()
+        let ptr_at = |i: u32| -> Result<u64> {
+            let at = base
+                .checked_add(u64::from(i) * 8)
+                .and_then(to_usize)
+                .ok_or(Error::ClusterIndex(index))?;
+            u64le(self.bytes, at).ok_or(Error::ClusterIndex(index))
         };
+        let start = ptr_at(index)?;
+        let end =
+            if index + 1 < self.cluster_count() { ptr_at(index + 1)? } else { self.layout.data_end() };
         if start >= end || end > self.layout.data_end() {
             return Err(Error::Cluster("cluster extent out of order"));
         }
@@ -103,6 +101,15 @@ impl<'a> Zim<'a> {
             to_usize(start).ok_or(Error::Cluster("offset overflow"))?,
             to_usize(end).ok_or(Error::Cluster("offset overflow"))?,
         );
+        if e > self.bytes.len() {
+            return Err(Error::Cluster("cluster past EOF"));
+        }
+        Ok((s, e))
+    }
+
+    /// Raw bytes of cluster `index`, info byte first.
+    pub fn cluster_raw(&self, index: u32) -> Result<&'a [u8]> {
+        let (s, e) = self.cluster_extent(index)?;
         self.bytes.get(s..e).ok_or(Error::Cluster("cluster past EOF"))
     }
 
@@ -131,6 +138,20 @@ impl<'a> Zim<'a> {
             }
         }
         Ok(None)
+    }
+
+    /// First entry index in URL order whose key is not less than `(namespace, url)`.
+    pub fn url_lower_bound(&self, namespace: u8, url: &[u8]) -> Result<u32> {
+        let (mut lo, mut hi) = (0u32, self.entry_count());
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let d = self.dirent(mid)?;
+            match cmp_key(d.url_key(), (namespace, url)) {
+                Ordering::Less => lo = mid + 1,
+                _ => hi = mid,
+            }
+        }
+        Ok(lo)
     }
 
     /// First position in title order whose key is not less than `(namespace, prefix)`.

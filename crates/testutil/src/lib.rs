@@ -328,7 +328,7 @@ fn cluster_body(blobs: &[Vec<u8>], extended: bool) -> Vec<u8> {
     body
 }
 
-/// A three-entry archive used by most tests: one page, one image, one redirect.
+/// The archive most tests run against: three entries, a redirect, and metadata.
 pub fn sample() -> Builder {
     Builder::new()
         .mimes(["text/html", "image/png", "text/plain"])
@@ -336,5 +336,45 @@ pub fn sample() -> Builder {
         .content("logo.png", "Logo", 1, &[0x89, b'P', b'N', b'G', 0, 1, 2, 3])
         .content("notes.txt", "Notes", 2, b"plain notes")
         .redirect("home.html", "Home", "index.html")
+        .content_in(b'M', "Title", "", 2, b"Sample Archive")
+        .content_in(b'M', "Description", "", 2, b"An archive crafted for tests")
+        .content_in(b'M', "Illustration_48x48@1", "", 1, &[0x89, b'P', b'N', b'G', 0, 0xff])
         .main_page("index.html")
+}
+
+/// A directory that removes itself when dropped.
+#[derive(Debug)]
+pub struct TempDir {
+    path: std::path::PathBuf,
+}
+
+impl TempDir {
+    /// Create a uniquely named directory under the system temporary directory.
+    pub fn new(tag: &str) -> TempDir {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir()
+            .join(format!("cairn-{tag}-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&path).expect("create temp dir");
+        TempDir { path }
+    }
+
+    /// The directory path.
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    /// Write a file into the directory and return its path.
+    pub fn write(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let p = self.path.join(name);
+        std::fs::write(&p, bytes).expect("write temp file");
+        p
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
