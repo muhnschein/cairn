@@ -42,10 +42,27 @@ pub fn decompress(kind: u8, input: &[u8], limit: usize) -> Result<Vec<u8>> {
         out: Vec::new(),
         limit,
     };
+
+    // Under the fuzz harness a panic aborts the process before `catch_unwind`
+    // can run: libfuzzer-sys installs a hook that does so deliberately, to keep
+    // the stack intact for the report. That would stop fuzz target A at a
+    // contained third-party defect instead of exploring past it, so the hook is
+    // silenced for the duration of the decoder call, and only for it. A panic
+    // anywhere else still aborts and is still reported.
+    #[cfg(fuzzing)]
+    let previous_hook = {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        previous
+    };
+
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match kind {
         COMP_XZ => xz_into(input, &mut sink),
         _ => zstd_into(input, &mut sink),
     }));
+
+    #[cfg(fuzzing)]
+    std::panic::set_hook(previous_hook);
 
     match outcome {
         Ok(Ok(())) => Ok(sink.out),
@@ -124,6 +141,22 @@ mod tests {
             decompress(COMP_XZ, &crafted_xz_footer(), 1 << 20),
             Err(Error::Decompress("decoder panicked"))
         );
+    }
+
+    /// The fuzz harness aborts on panic before `catch_unwind` can run, so
+    /// containment has to hold with that hook installed. Emulated here; the
+    /// real thing is `libfuzzer-sys`.
+    #[cfg(fuzzing)]
+    #[test]
+    fn containment_survives_an_aborting_panic_hook() {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            default_hook(info);
+            std::process::abort();
+        }));
+        // Reaching the assertion at all means the process did not abort.
+        assert!(decompress(COMP_XZ, &crafted_xz_footer(), 1 << 20).is_err());
+        let _ = std::panic::take_hook();
     }
 
     #[test]

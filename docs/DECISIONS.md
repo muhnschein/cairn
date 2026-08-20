@@ -218,6 +218,18 @@ prints its message to stderr through the default hook. That is noise, but it
 is also the only signal that a dependency mishandled an input, so the hook
 stays.
 
+**The harness makes this awkward, and that is handled explicitly.**
+`libfuzzer-sys` installs a panic hook that calls `abort()` *before* unwinding,
+deliberately, so the fuzzer can report an intact stack. That hook runs before
+`catch_unwind` ever gets a chance, so under the fuzzer a contained panic still
+killed the run — the fuzz job stopped at this one defect instead of exploring
+past it. `zimfmt::decompress` therefore silences the hook for the duration of
+the decoder call, and only under `cfg(fuzzing)`, which cargo-fuzz sets for the
+whole build. In a real daemon the default hook stays installed and the panic
+message is printed before the unwind is caught; under the fuzzer, a panic
+anywhere outside that one call still aborts and is still reported. The
+interaction has its own test, which aborts if the mechanism is removed.
+
 **Not done:** upstream still panics. The regression is pinned here by a unit
 test and by `fuzz/seeds/archive/xz-crash.zim` in the seed corpus, so a
 dependency bump that fixes or reintroduces it is visible.
