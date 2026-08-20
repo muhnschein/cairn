@@ -38,6 +38,7 @@ impl Catalog for Stub {
             major_version: 6,
             minor_version: 1,
             content_namespace: 'C',
+            suggest: true,
         })
     }
 

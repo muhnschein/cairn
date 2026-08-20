@@ -361,6 +361,7 @@ fn summary_fields(j: &mut Json, a: &crate::catalog::ArchiveSummary) {
         &format!("{}.{}", a.major_version, a.minor_version),
     );
     j.field("content_namespace", &a.content_namespace.to_string());
+    j.field_bool("suggest", a.suggest);
 }
 
 fn ok_json(j: Json) -> Response {

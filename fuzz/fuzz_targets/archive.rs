@@ -33,9 +33,14 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
-    for p in 0..entries.min(256) {
-        if let Ok(index) = zim.title_entry(p) {
-            let _ = zim.dirent(index);
+    if let Ok(Some(titles)) = zim.title_index() {
+        for p in 0..titles.count().min(256) {
+            if let Ok(index) = zim.title_entry(&titles, p) {
+                let _ = zim.dirent(index);
+            }
+        }
+        for ns in [b'C', b'A', 0xff] {
+            let _ = zim.title_lower_bound(&titles, ns, b"a");
         }
     }
 
@@ -49,6 +54,5 @@ fuzz_target!(|data: &[u8]| {
         let _ = zim.find(ns, b"index.html");
         let _ = zim.find(ns, b"");
         let _ = zim.url_lower_bound(ns, b"a");
-        let _ = zim.title_lower_bound(ns, b"a");
     }
 });

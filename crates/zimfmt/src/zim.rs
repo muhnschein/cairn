@@ -2,13 +2,37 @@ use core::cmp::Ordering;
 
 use crate::bytes::{to_usize, u32le, u64le};
 use crate::cluster::{Cluster, compression_of, offset_size_of};
-use crate::dirent::Dirent;
+use crate::dirent::{Dirent, Target};
 use crate::error::{Error, Result};
 use crate::header::Header;
 use crate::layout::Layout;
 
 /// How far a redirect chain is followed before it is abandoned.
 pub const MAX_REDIRECT_HOPS: u32 = 4;
+
+/// Path of the title ordering entry in the `X` namespace.
+pub const TITLE_LISTING_V1: &[u8] = b"listing/titleOrdered/v1";
+
+/// An array of little-endian `u32` entry indices, in title order, resident in
+/// the mapped file.
+///
+/// Both places an archive can keep its title ordering come out as this: a
+/// region named by the header, or the blob of an uncompressed listing entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TitleIndex {
+    at: usize,
+    count: u32,
+}
+
+impl TitleIndex {
+    /// How many entries the ordering covers.
+    ///
+    /// The listing entry covers front articles only, so this is usually fewer
+    /// than the archive's entry count.
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+}
 
 /// A read-only view over archive bytes plus its parsed [`Layout`].
 ///
@@ -67,21 +91,64 @@ impl<'a> Zim<'a> {
         )
     }
 
+    /// Where this archive keeps its title ordering, if it has one.
+    ///
+    /// Current libzim writes the sentinel [`crate::header::NO_TITLE_INDEX`] into
+    /// the header and stores the ordering as the entry
+    /// `X/listing/titleOrdered/v1`, whose blob is required to be in an
+    /// uncompressed cluster. Older archives carry the list in the header.
+    /// The entry wins when both exist, which is what libzim does.
+    pub fn title_index(&self) -> Result<Option<TitleIndex>> {
+        if let Some(entry) = self.find(b'X', TITLE_LISTING_V1)?
+            && let Target::Content { cluster, blob } = self.dirent(entry)?.target
+            && let Some((start, end)) = self.mapped_blob(cluster, blob)?
+        {
+            return Ok(Some(TitleIndex {
+                at: start,
+                count: ((end - start) / 4) as u32,
+            }));
+        }
+        if self.header().has_title_index() {
+            return Ok(Some(TitleIndex {
+                at: to_usize(self.header().title_ptr_pos)
+                    .ok_or(Error::Dirent("title index offset overflow"))?,
+                count: self.entry_count(),
+            }));
+        }
+        Ok(None)
+    }
+
+    /// Absolute byte range of a blob that is stored uncompressed.
+    ///
+    /// `None` when the cluster is compressed: the bytes are not in the file in
+    /// that form, so nothing can borrow them.
+    pub fn mapped_blob(&self, cluster: u32, blob: u32) -> Result<Option<(usize, usize)>> {
+        let (compression, _) = self.cluster_shape(cluster)?;
+        if !crate::decompress::is_uncompressed(compression) {
+            return Ok(None);
+        }
+        let (start, _) = self.cluster_extent(cluster)?;
+        // Nothing is decoded for an uncompressed cluster, so the bound is moot.
+        let parsed = self.cluster(cluster, usize::MAX)?;
+        let (from, to) = parsed.blob_range(blob)?;
+        let base = start + 1; // the info byte precedes the body
+        Ok(Some((base + from, base + to)))
+    }
+
     /// Entry index of the `position`-th entry in title order.
-    pub fn title_entry(&self, position: u32) -> Result<u32> {
-        if position >= self.entry_count() {
+    pub fn title_entry(&self, index: &TitleIndex, position: u32) -> Result<u32> {
+        if position >= index.count {
             return Err(Error::EntryIndex(position));
         }
-        let ptr = self.header().title_ptr_pos + u64::from(position) * 4;
-        let index = u32le(
-            self.bytes,
-            to_usize(ptr).ok_or(Error::EntryIndex(position))?,
-        )
-        .ok_or(Error::EntryIndex(position))?;
-        if index >= self.entry_count() {
-            return Err(Error::EntryIndex(index));
+        let at = index
+            .at
+            .checked_add(position as usize * 4)
+            .ok_or(Error::EntryIndex(position))?;
+        let entry = u32le(self.bytes, at).ok_or(Error::EntryIndex(position))?;
+        if entry >= self.entry_count() {
+            return Err(Error::EntryIndex(entry));
         }
-        Ok(index)
+        Ok(entry)
     }
 
     /// Absolute byte extent of cluster `index` within the file.
@@ -166,11 +233,16 @@ impl<'a> Zim<'a> {
     }
 
     /// First position in title order whose key is not less than `(namespace, prefix)`.
-    pub fn title_lower_bound(&self, namespace: u8, prefix: &[u8]) -> Result<u32> {
-        let (mut lo, mut hi) = (0u32, self.entry_count());
+    pub fn title_lower_bound(
+        &self,
+        index: &TitleIndex,
+        namespace: u8,
+        prefix: &[u8],
+    ) -> Result<u32> {
+        let (mut lo, mut hi) = (0u32, index.count);
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            let d = self.dirent(self.title_entry(mid)?)?;
+            let d = self.dirent(self.title_entry(index, mid)?)?;
             match cmp_key(d.title_key(), (namespace, prefix)) {
                 Ordering::Less => lo = mid + 1,
                 _ => hi = mid,

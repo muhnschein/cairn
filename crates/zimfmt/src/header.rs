@@ -11,6 +11,11 @@ pub const HEADER_LEN: usize = 80;
 /// Sentinel for "no main page".
 pub const NO_ENTRY: u32 = u32::MAX;
 
+/// Sentinel libzim writes into `title_ptr_pos` when the header carries no
+/// title index. Every archive written by a current libzim has this, and the
+/// ordering lives in the entry `X/listing/titleOrdered/v1` instead.
+pub const NO_TITLE_INDEX: u64 = u64::MAX;
+
 /// The fixed-size archive header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
@@ -55,6 +60,7 @@ impl Header {
         if uuid.is_nil() {
             return Err(Error::NilUuid);
         }
+        let mime_list_pos = u64le(head, 56).unwrap_or(0);
         Ok(Header {
             major_version,
             minor_version,
@@ -64,10 +70,16 @@ impl Header {
             url_ptr_pos: u64le(head, 32).unwrap_or(0),
             title_ptr_pos: u64le(head, 40).unwrap_or(0),
             cluster_ptr_pos: u64le(head, 48).unwrap_or(0),
-            mime_list_pos: u64le(head, 56).unwrap_or(0),
+            mime_list_pos,
             main_page: u32le(head, 64).unwrap_or(NO_ENTRY),
             layout_page: u32le(head, 68).unwrap_or(NO_ENTRY),
-            checksum_pos: u64le(head, 72).unwrap_or(0),
+            // A MIME table starting at 72 means a header from before the
+            // checksum field existed, so those bytes are table, not position.
+            checksum_pos: if mime_list_pos == 72 {
+                0
+            } else {
+                u64le(head, 72).unwrap_or(0)
+            },
         })
     }
 
@@ -83,6 +95,14 @@ impl Header {
         } else {
             b'A'
         }
+    }
+
+    /// True when the header points at a title pointer list of its own.
+    ///
+    /// False for archives written by a current libzim, which set the field to
+    /// [`NO_TITLE_INDEX`] and store the ordering as an entry.
+    pub fn has_title_index(&self) -> bool {
+        self.title_ptr_pos != NO_TITLE_INDEX
     }
 
     /// Main page entry index, if the archive declares one.

@@ -233,3 +233,43 @@ interaction has its own test, which aborts if the mechanism is removed.
 **Not done:** upstream still panics. The regression is pinned here by a unit
 test and by `fuzz/seeds/archive/xz-crash.zim` in the seed corpus, so a
 dependency bump that fixes or reintroduces it is visible.
+
+---
+
+## D12 — The title ordering lives in an entry, not the header
+
+**The bug this records:** cairn refused every archive Kiwix publishes, with
+"title pointer list does not fit in the file". Not an edge case — every one.
+
+The header field at offset 40 has been a position historically, and the parser
+treated it as one. Current libzim writes `setTitleIdxPos(offset_type(-1))`: a
+**sentinel** meaning "there is no title index here". Adding `4 × entry_count`
+to `u64::MAX` overflows, and the region check fired. The real ordering is the
+entry `X/listing/titleOrdered/v1`, whose blob libzim deliberately writes into
+an *uncompressed* cluster so a reader can address it directly.
+
+**Decided:** resolve the ordering the way libzim resolves it, once at open:
+
+1. the entry `X/listing/titleOrdered/v1` if present and its cluster is
+   uncompressed — front articles only, so it is usually shorter than the entry
+   count;
+2. otherwise the header's list, when the field is not the sentinel;
+3. otherwise none, and `/suggest` says so.
+
+Both cases reduce to the same thing — an array of little-endian `u32` entry
+indices resident in the mapped file — so `TitleIndex` names a position and a
+count and the search code does not care which one it got.
+
+**Why the tests did not catch it:** `testutil` only ever emitted the pre-6.1
+layout, so 145 passing tests all agreed with each other about a shape no real
+archive has had for years. The builder now emits the modern layout **by
+default**, with `legacy_title_index()` for the old one, and both are covered.
+A test corpus that only contains what the parser already handles is a test
+corpus that proves nothing.
+
+**Surfaced, not silent:** an archive with no ordering would otherwise make
+`/suggest` return an empty list forever with no way to tell why. `/v1/archives`
+now carries `"suggest": true|false` per archive.
+
+**Also mirrored from upstream:** a header whose MIME table starts at 72 predates
+the checksum field, so those bytes are table content rather than a position.

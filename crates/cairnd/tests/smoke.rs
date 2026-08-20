@@ -84,6 +84,11 @@ fn serves_every_documented_endpoint() {
     assert_eq!(r.status, 200);
     assert!(r.text().contains(r#""title":"Main Page""#), "{}", r.text());
 
+    // The listing entry is what a modern archive orders titles by, and the
+    // listing says whether an archive can answer at all.
+    let r = d.get("/v1/archives");
+    assert!(r.text().contains(r#""suggest":true"#), "{}", r.text());
+
     let r = d.get(&format!("/v1/archives/{SAMPLE_UUID}/random"));
     assert_eq!(r.status, 200);
     assert!(r.text().contains(r#""path":"#));

@@ -42,6 +42,7 @@ fn summary_of(s: archive::Summary) -> ArchiveSummary {
         major_version: s.major_version,
         minor_version: s.minor_version,
         content_namespace: s.content_namespace,
+        suggest: s.has_title_index,
     }
 }
 

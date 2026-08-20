@@ -16,7 +16,12 @@ pub enum Error {
     /// The header UUID is all zeroes.
     NilUuid,
     /// A declared region does not fit in the file.
-    Region(&'static str),
+    Region {
+        what: &'static str,
+        at: u64,
+        bytes: u64,
+        data_end: u64,
+    },
     /// MIME table unterminated, oversized, or truncated.
     MimeList,
     /// Entry index past `entry_count`.
@@ -52,7 +57,15 @@ impl fmt::Display for Error {
                 write!(f, "unsupported ZIM version {major}.{minor}")
             }
             Error::NilUuid => write!(f, "nil archive UUID"),
-            Error::Region(what) => write!(f, "{what} does not fit in the file"),
+            Error::Region {
+                what,
+                at,
+                bytes,
+                data_end,
+            } => write!(
+                f,
+                "{what} starts at {at} and spans {bytes} bytes, past the end of archive data at {data_end}"
+            ),
             Error::MimeList => write!(f, "malformed MIME type table"),
             Error::EntryIndex(i) => write!(f, "entry index {i} out of range"),
             Error::ClusterIndex(i) => write!(f, "cluster index {i} out of range"),

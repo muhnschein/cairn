@@ -20,6 +20,7 @@ fn main() {
             .build(),
         "legacy" => testutil::Builder::new()
             .uuid(*b"cairn-test-lgcy1")
+            .legacy_title_index()
             .version(5, 0)
             .mimes(["text/html"])
             .content("index.html", "Main Page", 0, b"<html>legacy</html>")
@@ -28,8 +29,12 @@ fn main() {
         // A regression seed for fuzz target A: the xz footer claims a
         // backward size of u32::MAX, which overflows inside the decoder.
         "xz-crash" => {
+            // The legacy layout keeps the xz cluster last, so the footer this
+            // patches is the one the decoder will read. With a title listing
+            // the final cluster is the uncompressed listing instead.
             let mut bytes = testutil::sample()
                 .uuid(*b"cairn-test-xzbad")
+                .legacy_title_index()
                 .compression(testutil::Compression::Xz)
                 .build();
             let checksum_pos =

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use memmap2::{Advice, Mmap};
-use zimfmt::{Cluster, Layout, Target, Uuid, Zim};
+use zimfmt::{Cluster, Layout, Target, TitleIndex, Uuid, Zim};
 
 pub use cache::{ClusterCache, Stats};
 pub use error::{LookupError, OpenError};
@@ -106,6 +106,8 @@ pub struct Summary {
     pub major_version: u16,
     pub minor_version: u16,
     pub content_namespace: char,
+    /// True when the archive carries a title ordering to suggest from.
+    pub has_title_index: bool,
 }
 
 /// One title-prefix suggestion.
@@ -130,6 +132,9 @@ pub struct Archive {
     map: Mmap,
     layout: Layout,
     title: String,
+    /// Resolved once at open, as libzim does: the listing entry if there is
+    /// one, else the header's list, else nothing to suggest from.
+    title_index: Option<TitleIndex>,
 }
 
 impl std::fmt::Debug for Archive {
@@ -176,8 +181,11 @@ impl Archive {
             map,
             layout,
             title: String::new(),
+            title_index: None,
         };
         archive.title = archive.read_title(limits);
+        // A malformed listing costs suggestion, not the archive.
+        archive.title_index = archive.zim().title_index().unwrap_or(None);
         Ok(archive)
     }
 
@@ -213,6 +221,7 @@ impl Archive {
             major_version: h.major_version,
             minor_version: h.minor_version,
             content_namespace: self.content_namespace() as char,
+            has_title_index: self.has_title_index(),
         }
     }
 
@@ -245,15 +254,26 @@ impl Archive {
         })
     }
 
+    /// True when this archive can answer suggestions at all.
+    pub fn has_title_index(&self) -> bool {
+        self.title_index.is_some()
+    }
+
     /// Title-prefix suggestions, byte-exact on the stored title.
+    ///
+    /// Empty when the archive carries no title ordering; `has_title_index`
+    /// reports that, so a client is not left guessing why.
     pub fn suggest(&self, prefix: &str, limit: usize) -> Result<Vec<Suggestion>, LookupError> {
+        let Some(index) = &self.title_index else {
+            return Ok(Vec::new());
+        };
         let zim = self.zim();
         let ns = self.content_namespace();
-        let start = zim.title_lower_bound(ns, prefix.as_bytes())?;
+        let start = zim.title_lower_bound(index, ns, prefix.as_bytes())?;
         let mut out = Vec::new();
         let mut position = start;
-        while out.len() < limit && position < zim.entry_count() {
-            let index = zim.title_entry(position)?;
+        while out.len() < limit && position < index.count() {
+            let index = zim.title_entry(index, position)?;
             let d = zim.dirent(index)?;
             if d.namespace != ns || !d.effective_title().starts_with(prefix.as_bytes()) {
                 break;

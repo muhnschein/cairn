@@ -35,6 +35,7 @@ impl Catalog for Stub {
             major_version: 6,
             minor_version: 1,
             content_namespace: 'C',
+            suggest: true,
         })
     }
 
@@ -175,6 +176,7 @@ fn lists_archives() {
     assert!(b.contains(&format!(r#""uuid":"{UUID}""#)), "{b}");
     assert!(b.contains(r#""format_version":"6.1""#), "{b}");
     assert!(b.contains(r#""main_page":"index.html""#), "{b}");
+    assert!(b.contains(r#""suggest":true"#), "{b}");
 }
 
 #[test]
