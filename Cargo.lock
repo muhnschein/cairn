@@ -28,6 +28,13 @@ version = "0.1.0"
 [[package]]
 name = "cairnd"
 version = "0.1.0"
+dependencies = [
+ "api",
+ "archive",
+ "libc",
+ "sandbox",
+ "testutil",
+]
 
 [[package]]
 name = "crc"
@@ -78,6 +85,9 @@ checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
 [[package]]
 name = "sandbox"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "testutil"

@@ -7,11 +7,19 @@ fn main() {
     let kind = args.next().unwrap_or_else(|| "sample".into());
     let path = args.next();
 
+    // Each kind gets its own UUID so several can be served side by side.
     let bytes = match kind.as_str() {
         "sample" => testutil::sample().build(),
-        "zstd" => testutil::sample().compression(testutil::Compression::Zstd).build(),
-        "xz" => testutil::sample().compression(testutil::Compression::Xz).build(),
+        "zstd" => testutil::sample()
+            .uuid(*b"cairn-test-zstd1")
+            .compression(testutil::Compression::Zstd)
+            .build(),
+        "xz" => testutil::sample()
+            .uuid(*b"cairn-test-xz001")
+            .compression(testutil::Compression::Xz)
+            .build(),
         "legacy" => testutil::Builder::new()
+            .uuid(*b"cairn-test-lgcy1")
             .version(5, 0)
             .mimes(["text/html"])
             .content("index.html", "Main Page", 0, b"<html>legacy</html>")

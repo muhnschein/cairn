@@ -13,6 +13,17 @@ pub enum Method {
     Other,
 }
 
+impl Method {
+    /// Name for logs. Unknown methods are not echoed.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Method::Get => "GET",
+            Method::Head => "HEAD",
+            Method::Other => "other",
+        }
+    }
+}
+
 /// Why a request could not be parsed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseError {
