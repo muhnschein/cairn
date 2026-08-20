@@ -9,6 +9,7 @@
 .Op Fl s Ar path | Fl a Ar addr
 .Op Fl t Ar token
 .Op Fl -timeout Ar secs
+.Op Fl -json
 .Ar command
 .Op Ar arg ...
 .Sh DESCRIPTION
@@ -17,9 +18,16 @@ speaks the same HTTP API as any other client, over the local socket.
 It has no privileged access and no side channel: anything it can do,
 .Xr curl 1
 can do.
-Metadata commands print the JSON they received;
+.Pp
+Metadata commands print a report meant to be read.
+.Fl -json
+prints the daemon's own answer instead, unchanged, and that is the form a
+script should read: the reports are for people and their layout is not an
+interface.
 .Cm get
-writes entry bytes to standard output.
+writes entry bytes and
+.Cm head
+writes response headers, in both modes.
 .Pp
 The options are:
 .Bl -tag -width "-a addr"
@@ -34,6 +42,9 @@ Bearer token, when the daemon requires one.
 .It Fl -timeout Ar secs
 Read and write timeout.
 Default 30.
+.It Fl -json
+Print the daemon's JSON rather than a report.
+Accepted before or after the command.
 .It Fl V , Fl -version
 Print the version and exit.
 .It Fl h , Fl -help
@@ -48,8 +59,14 @@ seccomp did not take.
 .It Cm archives
 Open archives, with their uuids.
 The uuid is the id used everywhere else.
+.Ql SUGGEST
+says whether
+.Cm suggest
+can answer for that archive at all.
 .It Cm archive Ar uuid
-One archive and its metadata.
+One archive, its
+.Ql M
+namespace metadata, and the names of any metadata that is not text.
 .It Cm get Ar uuid path
 Entry content, to standard output.
 Redirects are followed by the daemon.
@@ -58,31 +75,79 @@ Response headers only, including the resolved path.
 .It Cm suggest Ar uuid query Op Ar limit
 Title-prefix suggestions.
 Matching is byte-exact on the stored title.
+An archive with no title ordering says so rather than answering with an empty
+list that looks like a miss.
 .It Cm random Ar uuid
-One random entry path.
+One random entry path, alone on a line, so it can be fed straight back to
+.Cm get .
 .It Cm raw Ar method target
 Any request target, for debugging.
+The body is printed unchanged.
 .El
+.Sh ENTRY CONTENT
+.Cm get
+is a byte pipe.
+Redirected or piped, standard output is the bytes as stored, exactly.
+.Pp
+Written to a terminal it is not, because a terminal is an interpreter and an
+archive is hostile input: an entry read at a prompt has the characters a
+terminal would act on replaced with
+.Ql \&. ,
+keeping its own newlines and tabs, and content that is not text is refused
+rather than left to wedge the terminal.
+Redirect it or pipe it to get the bytes.
+.Sh ARCHIVE TEXT
+Titles, paths, MIME types and metadata values are all chosen by whoever built
+the archive.
+Everything
+.Nm
+prints in a report has the control characters and bidirectional overrides
+replaced with
+.Ql \&. ,
+so an archive cannot clear the screen, retitle the window, or forge a row in a
+table.
+The JSON is left alone:
+.Xr cairnd 8
+escapes control characters on the wire, so
+.Fl -json
+reports what an archive actually says.
 .Sh EXIT STATUS
 .Bl -tag -width Ds -compact
 .It 0
 The request succeeded.
 .It 1
 The daemon answered with an error status, or could not be reached.
-The error document is printed.
+The failure is printed to standard error; with
+.Fl -json
+the error document is printed to standard output instead.
 .It 2
 Usage error.
 .El
 .Sh EXAMPLES
+Find an archive, then read something out of it:
 .Bd -literal -offset indent
-$ cairn status | jq .sandbox
-$ cairn archives | jq -r '.archives[] | "\e(.uuid) \e(.title)"'
-$ cairn get 8b1f9c2e-... index.html > index.html
-$ cairn suggest 8b1f9c2e-... Rhino 5
+$ cairn archives
+UUID                                  ENTRIES  CLUSTERS  SUGGEST  TITLE
+b10db2a4-0aac-52db-fd17-c5f79f36ab96    20317       389  yes      Climate Change
+
+$ cairn suggest b10db2a4-0aac-52db-fd17-c5f79f36ab96 Clim
+TITLE                  PATH
+Climate change         Climate_change
+Climate change denial  Climate_change_denial
+
+$ cairn get b10db2a4-0aac-52db-fd17-c5f79f36ab96 Climate_change > article.html
 .Ed
 .Pp
-Against a daemon on loopback with a token:
+A random article, fetched in one line:
 .Bd -literal -offset indent
+$ uuid=b10db2a4-0aac-52db-fd17-c5f79f36ab96
+$ cairn get "$uuid" "$(cairn random "$uuid")" > article.html
+.Ed
+.Pp
+For scripts, and against a daemon on loopback with a token:
+.Bd -literal -offset indent
+$ cairn --json status | jq .sandbox.layers
+$ cairn --json archives | jq -r '.archives[] | "\e(.uuid) \e(.title)"'
 $ cairn -a 127.0.0.1:8320 -t "$(cat /etc/cairn/token)" status
 .Ed
 .Sh SEE ALSO
