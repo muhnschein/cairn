@@ -1,0 +1,15 @@
+[package]
+name = "cairn"
+description = "Control CLI for cairnd. Speaks the documented HTTP API and nothing else."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# No dependencies: the CLI is a client of the same API anyone else uses.
+[dependencies]
+
+[lints]
+workspace = true

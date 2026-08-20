@@ -1,0 +1,6 @@
+/target
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+*.zim
+!fuzz/seeds/archive/*.zim

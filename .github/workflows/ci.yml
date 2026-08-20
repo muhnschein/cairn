@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  # Pull requests cover branch work; pushes cover the default branch only, so
+  # a branch with a PR open is not built twice.
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup show && cargo --version
+      - run: make fmt
+      - run: make lint
+      - run: make doc-lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test
+
+  # The workload under the live seccomp filter, and the failure modes that
+  # only show up against a real daemon.
+  daemon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make smoke
+      - run: make chaos
+      - run: make sandbox
+
+  # A dependency added without review, a GPL-family licence, or a crate that
+  # crosses a boundary from the scope.
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make deps
+
+  man:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y mandoc
+      - run: make man-lint
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly
+      - run: cargo +nightly install cargo-fuzz --locked
+      - run: make fuzz FUZZ_TIME=60

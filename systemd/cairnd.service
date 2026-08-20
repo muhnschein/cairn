@@ -1,0 +1,56 @@
+[Unit]
+Description=cairn ZIM archive server
+Documentation=man:cairnd(8) man:cairn-api(7) man:cairn.conf(5)
+After=local-fs.target
+
+[Service]
+Type=exec
+ExecStart=@BINDIR@/cairnd -c @SYSCONFDIR@/cairn/cairn.conf
+ExecStartPre=@BINDIR@/cairnd -c @SYSCONFDIR@/cairn/cairn.conf --check
+Restart=on-failure
+RestartSec=1s
+
+# cairnd confines itself as well; this layer assumes nothing about that one.
+User=cairn
+Group=cairn
+RuntimeDirectory=cairn
+RuntimeDirectoryMode=0750
+StateDirectory=cairn
+UMask=0077
+
+# cairn fetches nothing and has no outbound socket capability at all.
+# Serving over tcp:127.0.0.1 instead of a unix socket needs
+# PrivateNetwork=no and RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6.
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+
+# The archive directory is the only thing worth reading, and it is read-only.
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/cairn/archives
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

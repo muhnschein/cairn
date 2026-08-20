@@ -1,0 +1,302 @@
+.Dd August 20, 2026
+.Dt CAIRN-API 7
+.Os
+.Sh NAME
+.Nm cairn-api
+.Nd HTTP interface served by cairnd
+.Sh DESCRIPTION
+.Xr cairnd 8
+serves the contents of ZIM archives over a small local HTTP API.
+It returns stored entries and metadata.
+It does not render a website, rewrite HTML, inject a reader, or present a
+catalogue.
+The intended consumers are other programs.
+.Pp
+The interface is HTTP/1.1 over a unix socket or a loopback TCP address.
+No other version is accepted: an
+.Ql HTTP/1.0
+or
+.Ql HTTP/2
+request line is answered
+.Ql 505 .
+No endpoint accepts a request body; a non-zero
+.Ql Content-Length
+is refused with
+.Ql 400
+before routing.
+Only
+.Ql GET
+and
+.Ql HEAD
+are answered.
+.Pp
+Metadata is JSON; entry content is the bytes stored in the archive, unmodified.
+.Sh ENDPOINTS
+All endpoints live under
+.Pa /v1 .
+.Ss GET /v1/status
+Daemon state, and the confinement that was actually applied.
+.Bd -literal -offset indent
+{
+  "version": "0.1.0",
+  "uptime_seconds": 3600,
+  "listener": "unix:/run/cairn/cairn.sock",
+  "archives": 2,
+  "auth": "none",
+  "sandbox": {
+    "required": true,
+    "layers": [
+      {"name": "no_new_privs", "state": "applied", "detail": null},
+      {"name": "landlock", "state": "applied", "detail": "abi 5"},
+      {"name": "seccomp", "state": "applied", "detail": "49 syscalls, ..."}
+    ]
+  },
+  "cache": {"budget_bytes": 67108864, "bytes": 0, "entries": 0,
+            "hits": 0, "misses": 0, "evictions": 0},
+  "connections": {"max": 64, "active": 1, "served": 0, "rejected": 0},
+  "limits": {"max_request_line": 8192, "max_header_bytes": 16384,
+             "max_headers": 64, "max_path_bytes": 1024,
+             "suggest_max_query": 128, "suggest_max_results": 32}
+}
+.Ed
+.Pp
+A layer's
+.Ql state
+is
+.Ql applied ,
+.Ql unsupported ,
+.Ql failed ,
+or
+.Ql disabled .
+A daemon that failed to confine itself otherwise looks identical to one that
+succeeded, which is why this is published rather than logged once at startup.
+.Ss GET /v1/archives
+Every open archive.
+.Bd -literal -offset indent
+{"archives": [
+  {"uuid": "...", "title": "Wikipedia", "entry_count": 6000000,
+   "cluster_count": 90000, "main_page": "index.html",
+   "format_version": "6.1", "content_namespace": "C"}
+]}
+.Ed
+.Pp
+This is the entire discovery surface.
+It is not a feed, and there is no catalogue protocol.
+.Ss GET /v1/archives/{uuid}
+One archive, plus its
+.Ql M
+namespace metadata.
+Text values appear under
+.Ql metadata ;
+names whose value is binary or larger than
+.Ql max_metadata_bytes
+are listed under
+.Ql binary_metadata .
+.Ss GET /v1/archives/{uuid}/entry/{path}
+Entry content, exactly as stored.
+Redirects are followed, to a fixed small depth.
+The response carries:
+.Bl -tag -width "Cross-Origin-Resource-Policy" -compact
+.It Ql Content-Type
+The archive's MIME type, if it is a clean
+.Ql type/subtype
+token; otherwise
+.Ql application/octet-stream .
+.It Ql X-Cairn-Archive
+The archive uuid, echoed from the request.
+.It Ql X-Cairn-Path
+The path after redirect following, percent-encoded.
+A client can tell a redirect target from a direct hit without a second request.
+.It Ql Accept-Ranges
+Always
+.Ql bytes .
+.It Ql X-Content-Type-Options
+Always
+.Ql nosniff .
+.It Ql Cross-Origin-Resource-Policy
+Always
+.Ql same-origin .
+.It Ql Content-Security-Policy
+From
+.Ql content_security_policy
+in
+.Xr cairn.conf 5 .
+.El
+.Ss HEAD /v1/archives/{uuid}/entry/{path}
+Size and type without the body.
+.Ql Content-Length
+describes the entry that would be sent.
+Note that computing it costs the same work as the
+.Ql GET :
+the length of a blob is only known once its cluster is decoded.
+.Ss GET /v1/archives/{uuid}/random
+One random entry path from the content namespace.
+.Bd -literal -offset indent
+{"archive": "...", "path": "Rhinoceros"}
+.Ed
+.Ss GET /v1/archives/{uuid}/suggest?q=PREFIX&limit=N
+Title-prefix suggestions, from a binary search over the archive's title
+pointer list.
+.Bd -literal -offset indent
+{"archive": "...", "suggestions": [{"title": "Apple", "path": "Apple"}]}
+.Ed
+.Pp
+Matching is byte-exact on the stored title: no case folding, no diacritic
+folding.
+.Ql q
+is required and bounded by
+.Ql suggest_max_query ;
+.Ql limit
+is clamped to
+.Ql suggest_max_results .
+There is no full-text search in cairn 1.x.
+.Sh PATHS
+.Ql {uuid}
+is the canonical lowercase hyphenated form of the UUID stored in the archive
+header.
+Any other form is
+.Ql 400 ,
+not a normalization.
+Ids are stable across restarts, renames and machines, and cannot be guessed
+from a filename:
+.Pa /v1/archives
+is the only way in.
+.Pp
+.Ql {path}
+is a key into the archive's table, not a filesystem path, so traversal cannot
+escape.
+It is percent-decoded exactly once.
+.Ql %00 ,
+raw control bytes, invalid escapes and non-canonical UTF-8 (over-long forms,
+surrogates) are all
+.Ql 400 .
+A decoded result is never decoded again.
+Everything else in the target is matched literally, including in the
+.Ql {uuid}
+segment.
+.Pp
+Lookup tries the archive's content namespace first:
+.Ql C
+in modern archives,
+.Ql A
+in older ones.
+If that misses and the path looks like
+.Ql N/rest
+where
+.Ql N
+is a single namespace character, the explicit form is tried next.
+That is what cross-namespace links in older archives look like.
+Two probes, no scan.
+.Sh RANGE REQUESTS
+A single range only.
+Multipart
+.Ql byteranges
+is refused with
+.Ql 416 :
+it is an amplification vector and a parser surface for no benefit to the
+intended clients.
+A satisfiable range is
+.Ql 206
+with
+.Ql Content-Range ;
+an unsatisfiable one is
+.Ql 416
+with
+.Ql Content-Range: bytes */LENGTH .
+A syntactically invalid
+.Ql Range
+header is ignored and the whole entry is sent.
+.Sh AUTHENTICATION
+If
+.Ql auth_token
+is configured, every request needs
+.Ql Authorization: Bearer TOKEN ,
+compared in constant time.
+The check happens
+.Em before
+routing, so an unauthenticated client cannot tell a missing archive from a
+present one: everything is
+.Ql 401 .
+There are no accounts, no sessions, and no roles.
+.Sh RENDERING ENTRIES IS THE CLIENT'S PROBLEM
+cairn returns archived HTML unmodified.
+It does not rewrite links, strip scripts, or sanitize anything: that would put
+an HTML parser in the hot path, and it will not be added later.
+.Pp
+A browser-based client that renders an entry is therefore rendering
+attacker-controlled markup.
+.Em Render entries in an isolated origin .
+The
+.Ql nosniff ,
+.Ql same-origin
+and
+.Ql Content-Security-Policy
+headers above are what a server can do without parsing content; they are not a
+substitute for origin isolation.
+This is a documented limitation, not a defect awaiting a sanitizer.
+.Sh LIMITS
+Every bound a client can push on is configurable and documented in
+.Xr cairn.conf 5 ,
+and none is unbounded: request line and header sizes, header count,
+concurrent connections, read and write timeouts, keep-alive length,
+per-connection request rate, decompressed cluster size, and cluster cache
+budget.
+Their live values are in
+.Pa /v1/status .
+.Sh EXAMPLES
+.Bd -literal -offset indent
+$ curl --unix-socket /run/cairn/cairn.sock http://cairn/v1/archives
+$ cairn get 8b1f... index.html > index.html
+$ curl -H 'Range: bytes=0-1023' --unix-socket /run/cairn/cairn.sock \e
+    http://cairn/v1/archives/8b1f.../entry/video.webm
+.Ed
+.Sh DIAGNOSTICS
+One shape, always:
+.Bd -literal -offset indent
+{"error": {"code": "not_found", "message": "no such resource"}}
+.Ed
+.Pp
+The message is a fixed string.
+Nothing the client sent is ever echoed back.
+Codes are stable:
+.Bl -column "range_not_satisfiable" "status" -compact -offset indent
+.It Sy code Ta Sy status
+.It Li bad_request Ta 400
+.It Li bad_uuid Ta 400
+.It Li bad_path Ta 400
+.It Li bad_query Ta 400
+.It Li body_not_allowed Ta 400
+.It Li unauthorized Ta 401
+.It Li not_found Ta 404
+.It Li method_not_allowed Ta 405
+.It Li request_timeout Ta 408
+.It Li uri_too_long Ta 414
+.It Li range_not_satisfiable Ta 416
+.It Li too_many_requests Ta 429
+.It Li headers_too_large Ta 431
+.It Li internal Ta 500
+.It Li archive_unavailable Ta 503
+.It Li version_not_supported Ta 505
+.El
+.Pp
+A malformed region inside one archive produces
+.Ql 503
+for that archive, not
+.Ql 500
+for the daemon, and never a panic.
+A missing archive and a missing entry are both
+.Ql not_found :
+the difference is not worth leaking and not useful to a client.
+.Sh SEE ALSO
+.Xr cairn 1 ,
+.Xr cairn.conf 5 ,
+.Xr cairnd 8
+.Sh STANDARDS
+The ZIM format is specified by the openZIM project.
+Where this page and the specification disagree, the specification wins.
+.Sh CAVEATS
+cairn 1.x has no full-text search.
+That is a real capability gap against
+.Xr kiwix-serve 1 ,
+and closing it means either a Xapian reader in Rust or a sidecar index.
+Title-prefix suggestion is what is offered instead.

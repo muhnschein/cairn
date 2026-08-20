@@ -1,0 +1,231 @@
+.Dd August 20, 2026
+.Dt CAIRN.CONF 5
+.Os
+.Sh NAME
+.Nm cairn.conf
+.Nd configuration file for cairnd
+.Sh DESCRIPTION
+One
+.Ql key = value
+per line.
+A
+.Ql #
+starts a comment and runs to the end of the line.
+Blank lines are ignored.
+An unknown key is an error, not a warning: a typo in a limit must not silently
+leave it at its default.
+.Pp
+Sizes accept a
+.Ql K ,
+.Ql M
+or
+.Ql G
+suffix and are otherwise decimal bytes.
+Durations accept
+.Ql ms ,
+.Ql s
+or
+.Ql m ;
+a bare number is seconds.
+Booleans are
+.Ql on
+or
+.Ql off .
+.Sh LISTENING
+.Bl -tag -width Ds
+.It Ic listen No = Ar unix:PATH | tcp:ADDR
+Default
+.Ql unix:/run/cairn/cairn.sock .
+A TCP address must be loopback; anything else is refused at startup.
+TLS is the reverse proxy's job.
+.It Ic socket_mode No = Ar OCTAL
+Mode of the unix socket, applied after binding.
+Default
+.Ql 0660 .
+.El
+.Sh ARCHIVES
+.Bl -tag -width Ds
+.It Ic archive_dir No = Ar PATH
+Directory of
+.Pa *.zim
+files, not descended into.
+Default
+.Pa /var/lib/cairn/archives .
+This is the only path Landlock leaves readable.
+.It Ic max_cluster_bytes No = Ar SIZE
+Ceiling on one decompressed cluster.
+Default
+.Ql 32M .
+A crafted cluster cannot exhaust memory: the decoder is stopped at the bound
+rather than checked after the fact.
+.It Ic cluster_cache_bytes No = Ar SIZE
+Global budget for decoded cluster bodies, shared by every archive.
+Default
+.Ql 64M .
+This is the ceiling on the amplification a client gets by asking repeatedly for
+a tiny entry inside a large compressed cluster.
+Uncompressed clusters are served straight from the mapping and never enter it.
+.It Ic max_metadata_bytes No = Ar SIZE
+Ceiling on one
+.Ql M
+namespace value.
+Default
+.Ql 8K .
+.It Ic max_metadata_entries No = Ar N
+Ceiling on how many metadata entries are reported.
+Default
+.Ql 64 .
+.El
+.Sh CONFINEMENT
+.Bl -tag -width Ds
+.It Ic sandbox No = Ar require | best-effort | off
+Default
+.Ql best-effort :
+apply what the kernel offers and report the rest.
+.Ql require
+refuses to start unless every enabled layer applied.
+.Ql off
+applies nothing and logs a warning.
+.It Ic sandbox_landlock No = Ar on | off
+Default
+.Ql on .
+Turning it off with
+.Ql sandbox require
+means the requirement covers the remaining layers only.
+.It Ic sandbox_seccomp No = Ar on | off
+Default
+.Ql on .
+.It Ic sandbox_action No = Ar kill | errno | log
+What the kernel does with a syscall outside the allowlist.
+Default
+.Ql kill .
+.Ql errno
+fails the call with
+.Er EPERM
+and is how you find a missing entry on an unfamiliar kernel;
+.Ql log
+allows it.
+Neither belongs in production.
+.El
+.Sh AUTHENTICATION
+.Bl -tag -width Ds
+.It Ic auth_token No = Ar TOKEN
+A single shared bearer token.
+Unset by default, which means no authentication.
+There are no accounts, sessions or roles.
+.It Ic auth_token_file No = Ar PATH
+Read the token from a file instead, trimming whitespace.
+Read once, at startup, before confinement.
+Prefer this: it keeps the token out of a world-readable config.
+.El
+.Sh CONNECTION LIMITS
+None of these is unbounded.
+.Bl -tag -width Ds
+.It Ic max_connections No = Ar N
+Worker threads, and therefore the ceiling on concurrent connections.
+Default
+.Ql 64 .
+Further connections wait in the kernel's accept queue.
+Threads are created before confinement and never after.
+.It Ic read_timeout No = Ar DURATION
+Time allowed to send a request.
+Default
+.Ql 15s .
+A half-written request is answered
+.Ql 408
+and dropped.
+.It Ic write_timeout No = Ar DURATION
+Time allowed to accept a response.
+Default
+.Ql 30s .
+.It Ic keepalive_requests No = Ar N
+Requests per connection before it is closed.
+Default
+.Ql 100 .
+.It Ic keepalive_timeout No = Ar DURATION
+Idle time allowed between requests on a connection.
+Default
+.Ql 15s .
+.It Ic request_rate No = Ar N
+Requests per second per connection, as a token bucket.
+Default
+.Ql 50 .
+Zero disables the ceiling.
+.It Ic request_burst No = Ar N
+Bucket depth.
+Default
+.Ql 100 .
+.El
+.Sh REQUEST LIMITS
+.Bl -tag -width Ds
+.It Ic max_request_line No = Ar SIZE
+Default
+.Ql 8K .
+Longer is
+.Ql 414 .
+.It Ic max_header_bytes No = Ar SIZE
+Default
+.Ql 16K .
+Longer is
+.Ql 431 .
+.It Ic max_headers No = Ar N
+Default
+.Ql 64 .
+.It Ic max_path_bytes No = Ar SIZE
+Ceiling on a decoded entry path.
+Default
+.Ql 1K .
+.It Ic suggest_max_query No = Ar SIZE
+Ceiling on
+.Ql q .
+Default
+.Ql 128 .
+.It Ic suggest_max_results No = Ar N
+Ceiling on suggestions returned.
+Default
+.Ql 32 .
+.El
+.Sh RESPONSES
+.Bl -tag -width Ds
+.It Ic content_security_policy No = Ar VALUE
+Sent with entry content.
+Default
+.Ql default-src 'none'; sandbox .
+A control byte in the value is a startup error.
+This does not make archived HTML safe to render in your own origin; see
+.Xr cairn-api 7 .
+.El
+.Sh LOGGING
+.Bl -tag -width Ds
+.It Ic log_level No = Ar error | warn | info | debug
+Default
+.Ql info .
+.It Ic access_log No = Ar on | off
+Default
+.Ql off .
+When on, each request logs method, status, body size and duration.
+The request target is never logged: it is client input.
+.El
+.Sh EXAMPLES
+An offline appliance serving one directory to local programs:
+.Bd -literal -offset indent
+listen = unix:/run/cairn/cairn.sock
+socket_mode = 0660
+archive_dir = /srv/zim
+sandbox = require
+max_connections = 32
+cluster_cache_bytes = 128M
+.Ed
+.Pp
+Behind a reverse proxy on loopback, with a token:
+.Bd -literal -offset indent
+listen = tcp:127.0.0.1:8320
+auth_token_file = /etc/cairn/token
+request_rate = 20
+request_burst = 40
+access_log = on
+.Ed
+.Sh SEE ALSO
+.Xr cairn 1 ,
+.Xr cairn-api 7 ,
+.Xr cairnd 8

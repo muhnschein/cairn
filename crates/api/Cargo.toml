@@ -1,0 +1,15 @@
+[package]
+name = "api"
+description = "cairn's HTTP surface. Knows nothing about ZIM internals and opens nothing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Deliberately empty: this crate parses hostile bytes and must stay auditable.
+[dependencies]
+
+[lints]
+workspace = true

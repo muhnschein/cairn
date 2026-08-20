@@ -1,0 +1,30 @@
+[package]
+name = "cairn-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+api = { path = "../crates/api" }
+zimfmt = { path = "../crates/zimfmt" }
+
+[[bin]]
+name = "archive"
+path = "fuzz_targets/archive.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request"
+path = "fuzz_targets/request.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

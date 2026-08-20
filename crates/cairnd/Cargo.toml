@@ -1,0 +1,21 @@
+[package]
+name = "cairnd"
+description = "The cairn daemon: config, init ordering, confinement, serving."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+api.workspace = true
+archive.workspace = true
+libc.workspace = true
+sandbox.workspace = true
+
+[dev-dependencies]
+testutil.workspace = true
+
+[lints]
+workspace = true
