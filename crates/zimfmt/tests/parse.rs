@@ -218,3 +218,23 @@ fn entry_and_cluster_indices_are_checked() {
     assert_eq!(zim.cluster_raw(9999), Err(Error::ClusterIndex(9999)));
     assert_eq!(zim.title_entry(9999), Err(Error::EntryIndex(9999)));
 }
+
+#[test]
+fn a_decoder_that_panics_is_still_an_error() {
+    // The committed seed carries an xz footer that overflows inside lzma-rs.
+    // Found by fuzz target A; the parser must answer, not unwind.
+    let bytes = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/archive/xz-crash.zim"),
+    )
+    .expect("crash seed");
+    let layout = Layout::parse(&bytes).expect("the archive itself is well formed");
+    let zim = Zim::new(&bytes, &layout);
+    let mut errors = 0;
+    for cluster in 0..zim.cluster_count() {
+        if zim.cluster(cluster, LIMIT).is_err() {
+            errors += 1;
+        }
+    }
+    assert!(errors > 0, "the crafted cluster should fail to decode");
+}

@@ -26,24 +26,36 @@ pub fn is_uncompressed(kind: u8) -> bool {
 ///
 /// A crafted cluster cannot exhaust memory: the sink stops the decoder at the
 /// bound rather than after the fact.
+///
+/// The decoders are third-party code on the hostile-archive path, and a
+/// crafted stream can panic inside one — `lzma-rs` overflows on a footer
+/// claiming a backward size of `u32::MAX`. A panic here would cost a worker,
+/// so it is caught and reported: this function answers with a `Result` for
+/// every input, always.
 pub fn decompress(kind: u8, input: &[u8], limit: usize) -> Result<Vec<u8>> {
+    match kind {
+        COMP_XZ | COMP_ZSTD => {}
+        other => return Err(Error::UnsupportedCompression(other)),
+    }
+
     let mut sink = Bounded {
         out: Vec::new(),
         limit,
     };
-    let outcome = match kind {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match kind {
         COMP_XZ => xz_into(input, &mut sink),
-        COMP_ZSTD => zstd_into(input, &mut sink),
-        COMP_ZLIB | COMP_BZIP2 => Err(Error::UnsupportedCompression(kind)),
-        other => Err(Error::UnsupportedCompression(other)),
-    };
+        _ => zstd_into(input, &mut sink),
+    }));
+
     match outcome {
-        Ok(()) => Ok(sink.out),
-        Err(e) if sink.overflowed() => {
+        Ok(Ok(())) => Ok(sink.out),
+        Ok(Err(e)) if sink.overflowed() => {
             let _ = e;
             Err(Error::TooLarge { limit })
         }
-        Err(e) => Err(e),
+        Ok(Err(e)) => Err(e),
+        // Nothing is shared with the decoder but the sink, which is dropped.
+        Err(_) => Err(Error::Decompress("decoder panicked")),
     }
 }
 
@@ -95,6 +107,24 @@ impl Write for Bounded {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A footer claiming a backward size of `u32::MAX` overflows inside
+    /// lzma-rs. Found by fuzz target A.
+    fn crafted_xz_footer() -> Vec<u8> {
+        let mut packed = Vec::new();
+        lzma_rs::xz_compress(&mut &b"hello"[..], &mut packed).unwrap();
+        let n = packed.len();
+        packed[n - 8..n - 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        packed
+    }
+
+    #[test]
+    fn a_panicking_decoder_becomes_an_error() {
+        assert_eq!(
+            decompress(COMP_XZ, &crafted_xz_footer(), 1 << 20),
+            Err(Error::Decompress("decoder panicked"))
+        );
+    }
 
     #[test]
     fn obsolete_codecs_are_refused() {

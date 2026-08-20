@@ -17,7 +17,7 @@ the declared licence of every crate in `Cargo.lock`.
 | Crate | Version | Licence | Used by | Why, and what it can reach |
 |---|---|---|---|---|
 | `ruzstd` | 0.9 | MIT | `zimfmt` | Zstandard decoding for cluster bodies. Pure Rust, so the hostile-archive path stays memory-safe (§8.1). Operates on slices; no I/O, no allocation beyond the output we bound. |
-| `lzma-rs` | 0.3 | MIT | `zimfmt` | LZMA2/xz decoding for older archives. Pure Rust, same reason. `#![forbid(unsafe_code)]` upstream. |
+| `lzma-rs` | 0.3 | MIT | `zimfmt` | LZMA2/xz decoding for older archives. Pure Rust, same reason. `#![forbid(unsafe_code)]` upstream. Known to panic on a crafted footer (`docs/DECISIONS.md` D11); `zimfmt` catches it. |
 | `byteorder` | 1.5 | Unlicense OR MIT | (via `lzma-rs`) | Integer reads inside the decoder. No I/O of its own. |
 | `crc` | 3.4 | MIT OR Apache-2.0 | (via `lzma-rs`) | xz stream checksums. Pure computation. |
 | `crc-catalog` | 2.5 | MIT OR Apache-2.0 | (via `crc`) | Table of CRC parameters. Data only. |

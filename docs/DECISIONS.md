@@ -193,3 +193,31 @@ This keeps the repository text, keeps the corpus regenerable, and makes a new
 hostile case a few lines of builder rather than a hex editor. `testutil` is
 never a dependency of `cairnd` or `cairn` — writing ZIM files is a non-goal
 (§4), and the builder exists only so the parser has something to refuse.
+
+---
+
+## D11 — A third-party decoder may panic; the parser contains it
+
+**Found by fuzz target A, within a minute of its first CI run:** `lzma-rs`
+panics with an arithmetic overflow on an xz footer claiming a backward size of
+`u32::MAX` (`decode/xz.rs:52`). A crafted archive reaches it through
+`zimfmt::decompress`.
+
+**Decided:** `zimfmt::decompress` catches the unwind and reports
+`Error::Decompress("decoder panicked")`. `zimfmt` promises its callers a
+`Result` for every input, and that promise cannot depend on a dependency never
+panicking.
+
+**Second layer:** a worker catches a panic from anywhere in the serving path
+and loses the connection, not the thread. Workers cannot be replaced after
+confinement (D7), so a panic that killed one would shrink the pool
+permanently — a denial of service from a single crafted archive.
+
+**Cost:** a panicking decoder leaves whatever it allocated to be dropped, and
+prints its message to stderr through the default hook. That is noise, but it
+is also the only signal that a dependency mishandled an input, so the hook
+stays.
+
+**Not done:** upstream still panics. The regression is pinned here by a unit
+test and by `fuzz/seeds/archive/xz-crash.zim` in the seed corpus, so a
+dependency bump that fixes or reintroduces it is visible.

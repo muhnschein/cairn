@@ -25,6 +25,19 @@ fn main() {
             .content("index.html", "Main Page", 0, b"<html>legacy</html>")
             .content_in(b'I', "logo.png", "Logo", 0, b"png")
             .build(),
+        // A regression seed for fuzz target A: the xz footer claims a
+        // backward size of u32::MAX, which overflows inside the decoder.
+        "xz-crash" => {
+            let mut bytes = testutil::sample()
+                .uuid(*b"cairn-test-xzbad")
+                .compression(testutil::Compression::Xz)
+                .build();
+            let checksum_pos =
+                u64::from_le_bytes(bytes[72..80].try_into().expect("header")) as usize;
+            let footer = checksum_pos - 8;
+            bytes[footer..footer + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+            bytes
+        }
         other => {
             eprintln!("zim-craft: unknown archive kind {other}");
             std::process::exit(2);

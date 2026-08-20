@@ -14,7 +14,7 @@ use api::{Fault, Limits, ParseError, RateLimiter, Request, Response, Router};
 
 use crate::config::Config;
 use crate::listener::{Listener, Stream};
-use crate::{debug, info, warn};
+use crate::{debug, error, info, warn};
 
 /// Counters published by `/v1/status`.
 #[derive(Debug, Default)]
@@ -131,7 +131,15 @@ fn worker(listener: &Listener, gate: &Gate) {
         match listener.accept() {
             Ok(stream) => {
                 serving.metrics.active.fetch_add(1, Ordering::Relaxed);
-                serve_connection(&serving, stream);
+                // A panic while serving costs the connection, never the
+                // worker: a pool that shrinks on hostile input is a denial of
+                // service, and the pool cannot be refilled after confinement.
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    serve_connection(&serving, stream)
+                }));
+                if outcome.is_err() {
+                    error!("panic while serving a connection");
+                }
                 serving.metrics.active.fetch_sub(1, Ordering::Relaxed);
             }
             Err(e) if e.kind() == ErrorKind::Interrupted => {}

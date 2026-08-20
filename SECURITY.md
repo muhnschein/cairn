@@ -24,6 +24,11 @@ fuzz target (`fuzz/fuzz_targets/archive.rs`, `fuzz/fuzz_targets/request.rs`).
   chains are followed to a fixed depth and then abandoned. Decompressed cluster
   size is bounded by configuration. A malformed region produces `503` for that
   archive, never a `500` and never a panic.
+- **A panicking decoder.** The decompressors are third-party code on the
+  hostile-archive path, and one of them panics on a crafted xz footer. The
+  parser catches the unwind and reports a decoding failure, and a worker
+  catches anything that escapes the serving path so a panic costs a connection
+  rather than a thread. See `docs/DECISIONS.md` D11.
 - **A crafted request.** Raw bytes in, with no assumption that a well-formed
   request is the common case. Request line, header block, header count,
   connection count, timeouts, keep-alive length and per-connection request rate

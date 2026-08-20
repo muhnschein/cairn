@@ -152,7 +152,7 @@ impl Daemon {
 
     /// Run the `cairn` CLI against this daemon.
     pub fn cli(&self, args: &[&str]) -> (i32, String, String) {
-        let out = Command::new(sibling_binary("cairn"))
+        let out = Command::new(cli_binary())
             .arg("-s")
             .arg(&self.socket)
             .args(args)
@@ -171,6 +171,29 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Path to the `cairn` CLI, building it if this run has not.
+///
+/// `cargo test -p cairnd` builds this package's binaries, not another crate's,
+/// so the CLI may simply not exist yet.
+pub fn cli_binary() -> PathBuf {
+    static BUILD: std::sync::Once = std::sync::Once::new();
+    let path = sibling_binary("cairn");
+    BUILD.call_once(|| {
+        if path.exists() {
+            return;
+        }
+        let mut cargo = Command::new(env!("CARGO"));
+        cargo.args(["build", "--quiet", "--package", "cairn"]);
+        if path.parent().is_some_and(|p| p.ends_with("release")) {
+            cargo.arg("--release");
+        }
+        let status = cargo.status().expect("run cargo build");
+        assert!(status.success(), "building the cairn CLI failed");
+    });
+    assert!(path.exists(), "cairn CLI missing at {}", path.display());
+    path
 }
 
 /// Path to another crate's binary in the same target directory.
