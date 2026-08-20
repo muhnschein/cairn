@@ -160,8 +160,9 @@ pub fn apply(policy: &Policy) -> Result<Report, Incomplete> {
                 "seccomp",
                 State::Applied,
                 Some(format!(
-                    "{} syscalls, {} on violation, {len} instructions",
+                    "{} syscalls, {} denied, {} on violation, {len} instructions",
                     allowed.len(),
+                    seccomp::denied_syscalls().len(),
                     policy.action
                 )),
             ),

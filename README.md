@@ -83,8 +83,10 @@ than the other.
 - **Both have a fuzz target**, and both are first-class.
 - **The daemon confines itself** after archives are open and the listener is
   bound: Landlock read-only on the archive directory, and a seccomp allowlist
-  measured from a traced run. `openat`, `clone`, `execve`, `socket` and
-  `connect` are not on it.
+  measured from a traced run. `clone`, `execve`, `socket` and `connect` are not
+  on it; the open family always fails with `EACCES`, so no path can be opened
+  and a library probing `/proc` for a tunable gets an error rather than a
+  corpse.
 - **Confinement is verifiable from outside.** `cairn status` reports what was
   actually applied, because a daemon that failed to confine itself otherwise
   looks identical to one that succeeded.
