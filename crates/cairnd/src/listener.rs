@@ -22,15 +22,46 @@ impl Listener {
     /// A leftover socket file from a killed daemon is removed only after a
     /// connect proves nothing is listening on it.
     pub fn bind(listen: &Listen, mode: u32) -> io::Result<Listener> {
+        Listener::preflight(listen)?;
         match listen {
             Listen::Unix(path) => {
                 clear_stale_socket(path)?;
-                let l = UnixListener::bind(path)?;
-                std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+                let l = UnixListener::bind(path)
+                    .map_err(|e| context(format!("cannot listen on {listen}"), e))?;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+                    .map_err(|e| context(format!("cannot set mode on {}", path.display()), e))?;
                 Ok(Listener::Unix(l))
             }
-            Listen::Tcp(addr) => Ok(Listener::Tcp(TcpListener::bind(addr)?)),
+            Listen::Tcp(addr) => TcpListener::bind(addr)
+                .map(Listener::Tcp)
+                .map_err(|e| context(format!("cannot listen on {listen}"), e)),
         }
+    }
+
+    /// What can be checked about a listener without binding it.
+    ///
+    /// `cairnd --check` runs this too: a configuration that opens every archive
+    /// and then cannot bind is not an ok configuration.
+    pub fn preflight(listen: &Listen) -> io::Result<()> {
+        let Listen::Unix(path) = listen else {
+            return Ok(());
+        };
+        let parent = path.parent().unwrap_or(Path::new("."));
+        if parent.as_os_str().is_empty() {
+            return Ok(());
+        }
+        if !parent.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "cannot listen on {listen}: the directory {} does not exist \
+                     (systemd creates it from RuntimeDirectory=cairn; otherwise \
+                     create it, or point `listen` somewhere that exists)",
+                    parent.display()
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Accept one connection.
@@ -40,6 +71,11 @@ impl Listener {
             Listener::Tcp(l) => l.accept().map(|(s, _)| Stream::Tcp(s)),
         }
     }
+}
+
+/// Keep the subject of a failure attached to it: a bare ENOENT names nothing.
+fn context(what: String, e: io::Error) -> io::Error {
+    io::Error::new(e.kind(), format!("{what}: {e}"))
 }
 
 fn clear_stale_socket(path: &Path) -> io::Result<()> {

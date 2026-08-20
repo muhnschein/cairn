@@ -29,7 +29,8 @@ Without this,
 is used if it exists, and built-in defaults otherwise.
 An explicitly named file must exist.
 .It Fl -check
-Parse the configuration, open every archive, report what was found, and exit.
+Parse the configuration, open every archive, check that the listener could be
+bound, report what was found, and exit.
 Nothing is bound and nothing is served.
 Use it before restarting a running daemon.
 .It Fl V , Fl -version
@@ -124,6 +125,18 @@ This is an availability property, not a confidentiality or integrity one:
 whoever can truncate the archive already has write access to the data
 directory and is outside the threat model.
 .El
+.Sh THE SOCKET DIRECTORY
+A unix socket cannot be created in a directory that does not exist, and
+.Nm
+does not create one: it holds no write capability to any path.
+Under systemd,
+.Ql RuntimeDirectory=cairn
+creates
+.Pa /run/cairn
+before the daemon starts and removes it after.
+Running by hand, create the directory first or point
+.Ql listen
+somewhere that exists.
 .Sh SIGNALS
 .Nm
 installs no handlers.
