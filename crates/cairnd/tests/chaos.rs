@@ -238,3 +238,41 @@ fn a_half_written_request_is_dropped_on_the_read_timeout() {
     assert_eq!(reply.status, 408);
     assert_eq!(d.get("/v1/status").status, 200);
 }
+
+#[test]
+fn a_missing_socket_directory_is_named_not_guessed_at() {
+    let dir = testutil::TempDir::new("chaos-nosockdir");
+    std::fs::create_dir_all(dir.path().join("archives")).unwrap();
+    std::fs::write(
+        dir.path().join("archives/s.zim"),
+        testutil::sample().build(),
+    )
+    .unwrap();
+    let conf = dir.path().join("cairn.conf");
+    std::fs::write(
+        &conf,
+        format!(
+            "listen = unix:{}/absent/cairn.sock\narchive_dir = {}/archives\n",
+            dir.path().display(),
+            dir.path().display()
+        ),
+    )
+    .unwrap();
+
+    // Both the dry run and the real one, because a check that passes and then
+    // a start that fails is worse than either.
+    for args in [vec!["-c"], vec!["-c"]].into_iter().zip([true, false]) {
+        let (flags, dry) = args;
+        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_cairnd"));
+        cmd.args(flags).arg(&conf);
+        if dry {
+            cmd.arg("--check");
+        }
+        let out = cmd.output().expect("run cairnd");
+        assert!(!out.status.success(), "dry={dry}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("cannot listen on unix:"), "dry={dry}: {err}");
+        assert!(err.contains("absent"), "the directory is named: {err}");
+        assert!(err.contains("does not exist"), "dry={dry}: {err}");
+    }
+}

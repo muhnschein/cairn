@@ -107,10 +107,13 @@ fn serve(config: Config, check: bool) -> Result<i32, Box<dyn std::error::Error>>
     let archives = Arc::new(Archives::new(catalog));
 
     if check {
+        // Opening every archive and then failing to bind is not "ok".
+        Listener::preflight(&config.listen)?;
         println!(
-            "cairnd: configuration ok, {} archive(s) in {}",
+            "cairnd: configuration ok, {} archive(s) in {}, will listen on {}",
             archives.inner().archives().len(),
-            config.archive_dir.display()
+            config.archive_dir.display(),
+            config.listen
         );
         return Ok(0);
     }
