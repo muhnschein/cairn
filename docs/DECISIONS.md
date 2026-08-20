@@ -273,3 +273,57 @@ now carries `"suggest": true|false` per archive.
 
 **Also mirrored from upstream:** a header whose MIME table starts at 72 predates
 the checksum field, so those bytes are table content rather than a position.
+
+---
+
+## D13 — The CLI reports; `--json` is the interface
+
+**Decided:** `cairn` renders the daemon's answers for a person by default and
+prints the JSON unchanged under `--json`, matching `clove(1)`. The reports are
+not an interface and are not versioned; `--json` is, and it is the daemon's own
+answer with nothing added, so a script never depends on this end.
+
+`get` and `head` are unaffected in both modes: entry content is not JSON and is
+never reformatted.
+
+**Cost:** two output paths for five commands, and a JSON reader in a crate whose
+manifest says it has no dependencies. The reader is small, is only ever pointed
+at the local daemon, and is bounded anyway.
+
+**Two things the reports do that the JSON cannot:**
+
+- `random` prints the path alone, so `cairn get "$uuid" "$(cairn random "$uuid")"`
+  works without `jq`.
+- an empty `suggest` result asks `/v1/archives/{uuid}` whether that archive has a
+  title ordering at all (D12) and says which kind of empty it is. A daemon that
+  will not answer counts as "it has one", so a failed second request never
+  invents an explanation.
+
+**Errors move:** a failed command prints one line to stderr and leaves stdout
+empty, rather than putting an error document where an answer goes. Under
+`--json` the document is still on stdout, because that is what was asked for.
+
+---
+
+## D14 — Archive text is scrubbed where it meets a terminal
+
+**Decided:** every string `cairn` prints in a report — titles, paths, MIME
+types, metadata values — has control characters and the bidirectional overrides
+replaced with `.`. Entry content written to a *terminal* is scrubbed too, keeping
+its own newlines and tabs; content that is not text is refused there rather than
+left to wedge the terminal.
+
+A terminal is an interpreter and an archive is hostile input (§7.1). `"\x1b[2J"`
+clears the reader's screen, `"\x1b]0;…\x07"` retitles their window, and a bare
+newline forges a table row. That is not a parser bug: `zimfmt` has no opinion
+about `ESC` because `ESC` is not a format problem.
+
+**Scrubbed at the boundary, not at the source.** The stored title is the
+archive's actual title and `/v1/archives` has to keep it; `api::json` escapes
+everything below `0x20`, so `--json` consumers were never affected and still see
+what the archive really says.
+
+**Cost:** a title containing a tab renders with a `.` where the tab was, and
+`--json` is the way to see the bytes. Redirected or piped, `get` is exact — which
+is how anything is actually extracted, and the reason scrubbing a terminal
+cannot corrupt a saved file.

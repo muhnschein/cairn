@@ -152,6 +152,12 @@ impl Daemon {
 
     /// Run the `cairn` CLI against this daemon.
     pub fn cli(&self, args: &[&str]) -> (i32, String, String) {
+        let (code, out, err) = self.cli_bytes(args);
+        (code, String::from_utf8_lossy(&out).into_owned(), err)
+    }
+
+    /// [`Daemon::cli`] without the lossy conversion, for content.
+    pub fn cli_bytes(&self, args: &[&str]) -> (i32, Vec<u8>, String) {
         let out = Command::new(cli_binary())
             .arg("-s")
             .arg(&self.socket)
@@ -160,7 +166,7 @@ impl Daemon {
             .expect("run cairn");
         (
             out.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&out.stdout).into_owned(),
+            out.stdout,
             String::from_utf8_lossy(&out.stderr).into_owned(),
         )
     }

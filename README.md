@@ -49,9 +49,24 @@ addressed by the UUID in their header, so ids are stable across restarts,
 renames and machines.
 
 ```console
-$ cairn status | jq .sandbox.layers
 $ cairn archives
-$ cairn get 8b1f9c2e-... index.html > index.html
+UUID                                  ENTRIES  CLUSTERS  SUGGEST  TITLE
+b10db2a4-0aac-52db-fd17-c5f79f36ab96    20317       389  yes      Climate Change
+
+$ cairn suggest b10db2a4-0aac-52db-fd17-c5f79f36ab96 Clim
+TITLE                  PATH
+Climate change         Climate_change
+Climate change denial  Climate_change_denial
+
+$ cairn get b10db2a4-0aac-52db-fd17-c5f79f36ab96 Climate_change > article.html
+```
+
+`cairn` renders reports for people. `--json` prints the daemon's own answer
+instead, which is what scripts should read — and every one of those answers is
+reachable without `cairn` at all:
+
+```console
+$ cairn --json status | jq .sandbox.layers
 $ curl --unix-socket /run/cairn/cairn.sock http://cairn/v1/archives
 ```
 

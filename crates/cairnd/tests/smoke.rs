@@ -274,15 +274,33 @@ fn the_cli_speaks_the_same_api() {
 
     let (code, out, err) = d.cli(&["status"]);
     assert_eq!(code, 0, "{err}");
-    assert!(out.contains(r#""archives":1"#), "{out}");
+    assert!(out.contains("archives        1\n"), "{out}");
+    assert!(out.contains("sandbox"), "{out}");
 
     let (code, out, _) = d.cli(&["archives"]);
     assert_eq!(code, 0);
-    assert!(out.contains(SAMPLE_UUID));
+    assert!(out.starts_with("UUID"), "{out}");
+    assert!(out.contains(SAMPLE_UUID), "{out}");
 
+    let (code, out, _) = d.cli(&["archive", SAMPLE_UUID]);
+    assert_eq!(code, 0);
+    assert!(out.contains("content_namespace  "), "{out}");
+
+    // Content is a byte pipe: `cli` captures a pipe, not a terminal, so these
+    // are the stored bytes exactly.
     let (code, out, _) = d.cli(&["get", SAMPLE_UUID, "index.html"]);
     assert_eq!(code, 0);
-    assert_eq!(out.trim_end(), "<html><body>index</body></html>");
+    assert_eq!(out, "<html><body>index</body></html>");
+
+    // Including for content that is not text, and not only for content that
+    // happens to survive a lossy conversion.
+    let (code, out, err) = d.cli_bytes(&["get", SAMPLE_UUID, "logo.png"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        out,
+        d.get(&format!("/v1/archives/{SAMPLE_UUID}/entry/logo.png"))
+            .body
+    );
 
     let (code, out, _) = d.cli(&["head", SAMPLE_UUID, "logo.png"]);
     assert_eq!(code, 0);
@@ -290,19 +308,63 @@ fn the_cli_speaks_the_same_api() {
 
     let (code, out, _) = d.cli(&["suggest", SAMPLE_UUID, "Ma"]);
     assert_eq!(code, 0);
-    assert!(out.contains("Main Page"));
+    assert!(out.starts_with("TITLE"), "{out}");
+    assert!(out.contains("Main Page"), "{out}");
 
+    // A path alone, so it can be fed straight back to `get`.
     let (code, out, _) = d.cli(&["random", SAMPLE_UUID]);
     assert_eq!(code, 0);
-    assert!(out.contains(r#""path""#));
+    let path = out.trim_end().to_owned();
+    assert!(!path.is_empty() && !path.contains('{'), "{out}");
+    let (code, _, err) = d.cli(&["get", SAMPLE_UUID, &path]);
+    assert_eq!(code, 0, "{path:?}: {err}");
 
-    // A 404 is an error exit, and the error document is printed.
-    let (code, out, _) = d.cli(&["get", SAMPLE_UUID, "nope.html"]);
+    // A 404 is an error exit, and the failure goes to stderr rather than
+    // leaving something answer-shaped on stdout.
+    let (code, out, err) = d.cli(&["get", SAMPLE_UUID, "nope.html"]);
     assert_eq!(code, 1);
-    assert!(out.contains("not_found"), "{out}");
+    assert_eq!(out, "");
+    assert!(err.contains("not_found: no such resource"), "{err}");
 
     let (code, _, _) = d.cli(&["nonsense"]);
     assert_eq!(code, 2);
+}
+
+#[test]
+fn the_cli_prints_json_only_when_asked() {
+    let d = Daemon::start("smoke-cli-json", "");
+
+    for args in [
+        vec!["--json", "status"],
+        vec!["status", "--json"],
+        vec!["--json", "archives"],
+        vec!["--json", "archive", SAMPLE_UUID],
+        vec!["--json", "suggest", SAMPLE_UUID, "Ma"],
+        vec!["--json", "random", SAMPLE_UUID],
+    ] {
+        let (code, out, err) = d.cli(&args);
+        assert_eq!(code, 0, "{args:?}: {err}");
+        assert!(out.starts_with('{'), "{args:?}: {out}");
+    }
+
+    // The same commands without it are reports, and no report is JSON.
+    for args in [
+        vec!["status"],
+        vec!["archives"],
+        vec!["archive", SAMPLE_UUID],
+        vec!["suggest", SAMPLE_UUID, "Ma"],
+        vec!["random", SAMPLE_UUID],
+    ] {
+        let (code, out, err) = d.cli(&args);
+        assert_eq!(code, 0, "{args:?}: {err}");
+        assert!(!out.starts_with('{'), "{args:?}: {out}");
+    }
+
+    // An error document is what `--json` promises even when the request failed.
+    let (code, out, err) = d.cli(&["--json", "get", SAMPLE_UUID, "nope.html"]);
+    assert_eq!(code, 1);
+    assert!(out.contains(r#""code":"not_found""#), "{out}");
+    assert_eq!(err, "");
 }
 
 #[test]
