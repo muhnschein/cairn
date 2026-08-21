@@ -253,7 +253,10 @@ fn count(v: &Value, key: &str) -> String {
 }
 
 fn indent(block: &str) -> String {
-    block.lines().map(|l| format!("  {l}\n")).collect()
+    block.lines().fold(String::new(), |mut out, l| {
+        let _ = writeln!(out, "  {l}");
+        out
+    })
 }
 
 #[cfg(test)]
@@ -264,7 +267,7 @@ mod tests {
     #[test]
     fn status_names_every_layer_and_its_state() {
         let v = parse(
-            r#"{"version":"0.1.0","uptime_seconds":11520,"listener":"unix:/run/cairn/cairn.sock",
+            r#"{"version":"2026.08","uptime_seconds":11520,"listener":"unix:/run/cairn/cairn.sock",
                 "archives":2,"auth":"none",
                 "sandbox":{"required":true,"layers":[
                   {"name":"no_new_privs","state":"applied","detail":null},
@@ -292,7 +295,7 @@ mod tests {
     #[test]
     fn status_survives_a_daemon_that_reports_less() {
         // Rendering must not depend on fields an older or partial answer omits.
-        assert!(!status(&parse(r#"{"version":"0.1.0"}"#).unwrap()).is_empty());
+        assert!(!status(&parse(r#"{"version":"2026.08"}"#).unwrap()).is_empty());
         assert!(!status(&parse("{}").unwrap()).is_empty());
     }
 

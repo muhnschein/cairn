@@ -8,18 +8,25 @@ use zimfmt::Uuid;
 pub enum OpenError {
     /// The file could not be opened or mapped.
     Io {
+        /// The file that failed.
         path: PathBuf,
+        /// What the OS said.
         source: std::io::Error,
     },
     /// The file is not a ZIM archive cairn can serve.
     Format {
+        /// The file that failed.
         path: PathBuf,
+        /// What the parser said.
         source: zimfmt::Error,
     },
     /// Two files carry the same archive UUID.
     DuplicateUuid {
+        /// The uuid both files claim.
         uuid: Uuid,
+        /// First file seen with it.
         first: PathBuf,
+        /// Second file seen with it.
         second: PathBuf,
     },
 }

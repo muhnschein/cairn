@@ -16,6 +16,9 @@ use zimfmt::{Cluster, Layout, Target, TitleIndex, Uuid, Zim};
 
 pub use cache::{ClusterCache, Stats};
 pub use error::{LookupError, OpenError};
+/// Re-exported so callers can name the error inside [`LookupError::Corrupt`]
+/// and [`OpenError::Format`] without depending on the parser directly.
+pub use zimfmt;
 
 /// Bounds that apply to every archive in a catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,13 +101,21 @@ pub struct Entry {
 /// What `/v1/archives` reports per archive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Summary {
+    /// Archive identity from the header.
     pub uuid: Uuid,
+    /// Archive title, as stored.
     pub title: String,
+    /// Entries in the archive, redirects included.
     pub entry_count: u32,
+    /// Clusters in the archive.
     pub cluster_count: u32,
+    /// Path of the archive's main page, when it declares one.
     pub main_page: Option<String>,
+    /// ZIM format major version.
     pub major_version: u16,
+    /// ZIM format minor version.
     pub minor_version: u16,
+    /// Namespace holding content: `C` in modern archives, `A` in older ones.
     pub content_namespace: char,
     /// True when the archive carries a title ordering to suggest from.
     pub has_title_index: bool,
@@ -113,7 +124,9 @@ pub struct Summary {
 /// One title-prefix suggestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Suggestion {
+    /// Title as stored, which is what the prefix matched.
     pub title: String,
+    /// Path of the entry with that title.
     pub path: String,
 }
 
@@ -307,6 +320,8 @@ impl Archive {
         // draws from the same seed keep this bounded.
         let mut seed = pick;
         for _ in 0..4 {
+            // `seed % span < span <= u32::MAX`, so the narrowing loses nothing.
+            #[allow(clippy::cast_possible_truncation)]
             let index = lo + (seed % span) as u32;
             if let Ok(target) = self.zim().resolve(index)
                 && let Ok(path) = self.path_of(target)
@@ -314,8 +329,8 @@ impl Archive {
                 return Ok(path);
             }
             seed = seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
         }
         Err(LookupError::NoSuchEntry)
     }
@@ -402,7 +417,7 @@ impl Catalog {
                 path: dir.into(),
                 source: e,
             })?
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .map(|e| e.path())
             .filter(|p| p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zim")))
             .collect();
@@ -550,16 +565,15 @@ impl Catalog {
         }
 
         let key = (slot, cluster);
-        let body = match self.cache.get(key) {
-            Some((body, _)) => body,
-            None => {
-                // Decoding outside the lock can duplicate work under a race; a
-                // lock held across decompression would serialize every worker.
-                let decoded = zim
-                    .cluster(cluster, self.limits.max_cluster_bytes)?
-                    .into_body();
-                self.cache.insert(key, decoded, offset_size)
-            }
+        let body = if let Some((body, _)) = self.cache.get(key) {
+            body
+        } else {
+            // Decoding outside the lock can duplicate work under a race; a
+            // lock held across decompression would serialize every worker.
+            let decoded = zim
+                .cluster(cluster, self.limits.max_cluster_bytes)?
+                .into_body();
+            self.cache.insert(key, decoded, offset_size)
         };
         let c = Cluster::from_cached(&body, offset_size)?;
         let (s, e) = c.blob_range(blob)?;

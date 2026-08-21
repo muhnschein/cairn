@@ -19,16 +19,22 @@ use crate::{debug, error, info, warn};
 /// Counters published by `/v1/status`.
 #[derive(Debug, Default)]
 pub struct Metrics {
+    /// Connections being served right now.
     pub active: AtomicU64,
+    /// Connections accepted since startup.
     pub served: AtomicU64,
+    /// Connections refused since startup.
     pub rejected: AtomicU64,
 }
 
 /// Everything a worker needs once confinement is done.
 #[derive(Debug)]
 pub struct Serving {
+    /// The routing table, holding the open archives.
     pub router: Arc<Router>,
+    /// Limits and timeouts, read on every request.
     pub config: Arc<Config>,
+    /// Shared counters.
     pub metrics: Arc<Metrics>,
 }
 
@@ -70,46 +76,64 @@ impl Gate {
 
     /// Block until `count` workers have finished starting.
     pub fn wait_for_workers(&self, count: usize) {
-        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while guard.workers < count {
-            guard = self.started.wait(guard).unwrap_or_else(|e| e.into_inner());
+            guard = self
+                .started
+                .wait(guard)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
     /// Let the workers through.
     pub fn open(&self, serving: Arc<Serving>) {
-        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.serving = Some(serving);
         self.ready.notify_all();
     }
 
     fn arrive(&self) {
-        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.workers += 1;
         self.started.notify_all();
     }
 
     fn wait(&self) -> Arc<Serving> {
-        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if let Some(s) = guard.serving.as_ref() {
                 return Arc::clone(s);
             }
-            guard = self.ready.wait(guard).unwrap_or_else(|e| e.into_inner());
+            guard = self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 }
 
 /// Start the worker pool. Call before applying the sandbox.
 pub fn spawn_workers(
-    listener: Arc<Listener>,
-    gate: Arc<Gate>,
+    listener: &Arc<Listener>,
+    gate: &Arc<Gate>,
     count: usize,
 ) -> std::io::Result<Vec<JoinHandle<()>>> {
     let mut handles = Vec::with_capacity(count);
     for n in 0..count {
-        let listener = Arc::clone(&listener);
-        let gate = Arc::clone(&gate);
+        let listener = Arc::clone(listener);
+        let gate = Arc::clone(gate);
         handles.push(
             std::thread::Builder::new()
                 .name(format!("cairnd-{n}"))
@@ -135,7 +159,7 @@ fn worker(listener: &Listener, gate: &Gate) {
                 // worker: a pool that shrinks on hostile input is a denial of
                 // service, and the pool cannot be refilled after confinement.
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    serve_connection(&serving, stream)
+                    serve_connection(&serving, stream);
                 }));
                 if outcome.is_err() {
                     error!("panic while serving a connection");

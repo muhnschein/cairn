@@ -15,9 +15,19 @@ pub const MAX_STRING: usize = 4096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     /// Blob `blob` of cluster `cluster`.
-    Content { cluster: u32, blob: u32 },
+    /// A blob in a cluster.
+    Content {
+        /// Cluster holding the blob.
+        cluster: u32,
+        /// Blob within that cluster.
+        blob: u32,
+    },
     /// Another entry, by index into the URL pointer list.
-    Redirect { entry: u32 },
+    /// Another entry, by index.
+    Redirect {
+        /// Entry index this redirects to.
+        entry: u32,
+    },
     /// Link target or deleted: no content, no redirect.
     Absent,
 }
@@ -25,11 +35,17 @@ pub enum Target {
 /// One directory entry, borrowing its strings from the mapped file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dirent<'a> {
+    /// Index into the MIME table.
     pub mime_index: u16,
+    /// Namespace byte, e.g. `C`, `M`, `X`.
     pub namespace: u8,
+    /// Revision, always zero in practice.
     pub revision: u32,
+    /// Where the content is, or what this redirects to.
     pub target: Target,
+    /// Path within the namespace, as stored.
     pub url: &'a [u8],
+    /// Title, as stored. Empty when the entry has none.
     pub title: &'a [u8],
 }
 

@@ -13,7 +13,9 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.1.0"
+# Semver's spelling of release 2026.08 (calver.org); `api::VERSION` is the
+# padded name, and a test there fails if only one of the two is bumped.
+version = "2026.8.0"
 edition = "2024"
 rust-version = "1.94"
 license = "ISC"
@@ -37,9 +39,22 @@ ruzstd = { version = "0.9.0", default-features = false, features = ["std"] }
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 unsafe_op_in_unsafe_fn = "deny"
 missing_debug_implementations = "warn"
+missing_docs = "warn"
 
 [workspace.lints.clippy]
-undocumented_unsafe_blocks = "warn"
+# Pedantic baseline with a short, justified exception list (SCOPE §12).
+pedantic = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"
+expect_used = "warn"
+# Documentation shape, not correctness. Errors are documented on the error
+# enum, where the variants are; a per-function `# Errors` section restates it.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Almost every accessor in a parser is a candidate, and dropping one of these
+# return values is not a bug worth 100 attributes.
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
 
 [profile.release]
 panic = "unwind"

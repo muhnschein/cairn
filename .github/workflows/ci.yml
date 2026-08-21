@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Fuzzing on a pull request is a smoke test. The real run is nightly.
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -52,10 +56,93 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mandoc
       - run: make man-lint
 
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  # 60 seconds a target, from the committed seeds. Enough to catch a
+  # regression a seed already reaches; not a real fuzzing run.
   fuzz:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly
       - run: cargo +nightly install cargo-fuzz --locked
       - run: make fuzz FUZZ_TIME=60
+
+  # The real run. The corpus is restored from the previous night, extended,
+  # minimised, and saved again, so coverage accumulates across runs instead of
+  # restarting from the seeds every time.
+  fuzz-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [archive, request]
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly
+      - run: cargo +nightly install cargo-fuzz --locked
+
+      # A cache entry is immutable, so each night writes a new key and the
+      # restore-keys prefix finds the most recent one. Without this the corpus
+      # would be thrown away every night and only ever re-find what the seeds
+      # already reach.
+      - name: Restore corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
+      - name: Seed anything the corpus is missing
+        run: |
+          mkdir -p fuzz/corpus/${{ matrix.target }}
+          cp -n fuzz/seeds/${{ matrix.target }}/* fuzz/corpus/${{ matrix.target }}/ || true
+          echo "starting from $(find fuzz/corpus/${{ matrix.target }} -type f | wc -l) inputs"
+
+      - name: Fuzz
+        run: |
+          cd fuzz
+          cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=1800
+
+      # Minimise before saving: an unminimised corpus grows without bound and
+      # slows every later run down.
+      - name: Minimise
+        if: always()
+        run: cd fuzz && cargo +nightly fuzz cmin ${{ matrix.target }}
+
+      - name: Save corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      # The corpus lives in the cache, which expires. This is the copy a human
+      # can download and fold into the committed seeds with `make fuzz-seed`.
+      - name: Upload corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target }}
+          path: fuzz/corpus/${{ matrix.target }}
+          retention-days: 30
+
+      # A crash is the point of the exercise; keep the input that caused it.
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore

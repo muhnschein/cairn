@@ -1,5 +1,8 @@
 //! Writes a crafted ZIM archive. Test fixture generator, not a ZIM writer.
 
+// `zim-craft` regenerates the fuzz seed corpus; a panic is the error report.
+#![allow(clippy::expect_used, clippy::cast_possible_truncation)]
+
 use std::io::Write;
 
 fn main() {

@@ -5,21 +5,33 @@ use core::fmt;
 pub enum Error {
     /// A read ran past the end of the file.
     Truncated {
+        /// What was being read.
         what: &'static str,
+        /// Bytes the read needed.
         need: u64,
+        /// Bytes the file has.
         have: u64,
     },
     /// Magic number is not [`crate::MAGIC`].
     BadMagic(u32),
     /// Major version outside the supported range.
-    UnsupportedVersion { major: u16, minor: u16 },
+    UnsupportedVersion {
+        /// Header major version.
+        major: u16,
+        /// Header minor version.
+        minor: u16,
+    },
     /// The header UUID is all zeroes.
     NilUuid,
     /// A declared region does not fit in the file.
     Region {
+        /// What the region holds.
         what: &'static str,
+        /// Declared start offset.
         at: u64,
+        /// Declared length in bytes.
         bytes: u64,
+        /// End of the file the offsets are checked against.
         data_end: u64,
     },
     /// MIME table unterminated, oversized, or truncated.
@@ -39,7 +51,10 @@ pub enum Error {
     /// Decompression refused the input.
     Decompress(&'static str),
     /// Decompressed output would exceed the configured bound.
-    TooLarge { limit: usize },
+    TooLarge {
+        /// The bound that was exceeded.
+        limit: usize,
+    },
     /// Redirect chain longer than the allowed depth.
     RedirectDepth,
     /// Asked for content of a redirect or of a deleted entry.

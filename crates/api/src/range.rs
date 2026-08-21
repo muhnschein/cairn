@@ -6,7 +6,12 @@ pub enum Range {
     /// Serve the whole entry.
     Whole,
     /// Serve `[start, end)`.
-    Partial { start: u64, end: u64 },
+    Partial {
+        /// First byte served.
+        start: u64,
+        /// One past the last byte served.
+        end: u64,
+    },
     /// Well formed but cannot be satisfied: answer 416.
     Unsatisfiable,
 }

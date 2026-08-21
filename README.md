@@ -27,10 +27,9 @@ Permanently, not "not yet":
 - **No writing ZIM files**, no scraping, no accounts, no TLS, no clustering,
   no plugins.
 
-**No full-text search in 1.x.** This is a real capability gap against
-`kiwix-serve`, and cairn offers title-prefix suggestion instead. Closing it
-means a Xapian reader in Rust or a sidecar index, and both are their own
-project.
+**No full-text search.** This is a real capability gap against `kiwix-serve`,
+and cairn offers title-prefix suggestion instead. Closing it means a Xapian
+reader in Rust or a sidecar index, and both are their own project.
 
 ## The API
 
@@ -132,12 +131,18 @@ $ make fmt         # rustfmt check
 $ make man-lint    # mdoc validation
 $ make doc-lint    # rustdoc links and warnings
 $ make deps        # dependency allowlist, licences, crate boundaries
+$ make deny        # cargo-deny: advisories, licences, bans, sources
 $ make fuzz        # cargo-fuzz, nightly toolchain
+$ make fuzz-seed   # fold a fuzzing corpus into the committed seeds
 ```
+
+Fuzzing on a pull request is a smoke test. The real run is nightly, against a
+corpus that persists and grows across runs; see [`fuzz/README.md`](fuzz/README.md).
 
 Routine tests need no archive present: `crates/testutil` crafts them. Seven
 third-party crates, each with a reason in [`DEPENDENCIES.md`](DEPENDENCIES.md).
-Open questions from the scope are resolved in
+What the project is and is not is in [`docs/SCOPE.md`](docs/SCOPE.md); the
+decisions checked against it, and what they cost, are in
 [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ### Layout
@@ -153,6 +158,19 @@ Open questions from the scope are resolved in
 
 `zimfmt` has no dependency that can perform I/O; `api` has none at all. These
 boundaries are enforced by `ci/check-boundaries.sh`, not by convention.
+
+## Versioning
+
+Calendar versioning ([calver.org](https://calver.org/)): a release is named for
+the month it was cut in — `YYYY.0M`, e.g. *2026.08*, with a counter appended
+for a second release in one month (*2026.08.1*). No major/minor/patch: the name
+says when, and promises nothing about compatibility. That promise belongs to
+the `/v1/` path and to the archive format cairn reads.
+
+Cutting one: `api::VERSION` is the name, and `Cargo.toml` carries the same
+release as `2026.8.0` because semver forbids the leading zero. Bump both — a
+test fails otherwise, as does the CLI's own copy in `crates/cairn` — refresh
+the `cairn-api(7)` example, then tag `v2026.08`.
 
 ## Licence
 

@@ -1,0 +1,28 @@
+# Boundaries from docs/SCOPE.md §7.1, enforced at the type and method level
+# rather than by crate name alone. ci/check-boundaries.sh catches a crate that
+# should not be in the graph; these catch a call that should not be written.
+
+disallowed-methods = [
+    # "No DNS." A hostname in cairn.conf is refused, never resolved: the
+    # resolver is a whole subsystem (NSS modules, /etc/resolv.conf, a socket)
+    # reached from a config string.
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "no DNS (SCOPE §7.1); parse a SocketAddr instead" },
+    # "No process is spawned."
+    { path = "std::process::Command::new", reason = "no process is spawned (SCOPE §7.1)" },
+    # Confinement is measured from a traced run and reported from /v1/status.
+    # A thread created after it would need `clone` on the allowlist (D7).
+    { path = "std::thread::spawn", reason = "no thread is created after confinement (D7); the pool is fixed" },
+]
+
+disallowed-types = [
+    # Nothing in the tree speaks UDP, and nothing resolves a name.
+    { path = "std::net::UdpSocket", reason = "cairn has no outbound socket capability (SCOPE §7.1)" },
+]
+
+# Tests may unwrap: a panic there is the failure report.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+
+# Error text is written for the operator reading a log at 2 a.m.
+too-many-lines-threshold = 200

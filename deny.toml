@@ -1,0 +1,47 @@
+# cargo-deny: the dependency budget from docs/SCOPE.md §3.4 and §11.
+# Run: make deny
+
+[graph]
+all-features = true
+
+[licenses]
+# ISC, and no GPL- or AGPL-licensed crate enters this tree (SCOPE §11).
+# Anything not on this list fails rather than being waved through.
+allow = [
+    "ISC",
+    "MIT",
+    "Apache-2.0",
+    "Unlicense",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "NCSA",
+]
+
+[bans]
+multiple-versions = "warn"
+# A wildcard on a real crates.io dependency is an unreviewed dependency with
+# extra steps. Workspace-internal `{ path = ... }` deps carry no version and
+# are not wildcards in that sense.
+wildcards = "deny"
+allow-wildcard-paths = true
+# Nothing in the tree may reach the network, spawn a process, or pull in an
+# async runtime. ci/check-boundaries.sh enforces the per-crate graph; this
+# catches the crate arriving anywhere at all.
+deny = [
+    { name = "openssl-sys", reason = "no TLS (SCOPE §4)" },
+    { name = "native-tls", reason = "no TLS (SCOPE §4)" },
+    { name = "rustls", reason = "no TLS (SCOPE §4)" },
+    { name = "tokio", reason = "no async runtime (DEPENDENCIES.md)" },
+    { name = "async-std", reason = "no async runtime (DEPENDENCIES.md)" },
+    { name = "serde", reason = "no serde; api::Json is fifty lines (DEPENDENCIES.md)" },
+    { name = "reqwest", reason = "cairn fetches nothing (SCOPE §4)" },
+    { name = "hyper", reason = "the HTTP surface is ours (D6)" },
+]
+
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

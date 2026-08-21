@@ -3,7 +3,8 @@
 Seven third-party crates. Every one has a reason, a licence, and a note on what
 it is allowed to touch. `ci/check-deps.sh` fails when a crate appears that is
 not in the table below; `ci/check-boundaries.sh` fails when a crate crosses a
-boundary from §5 of the scope.
+boundary from §5 of [the scope](docs/SCOPE.md). `deny.toml` adds the advisory
+database, yanked crates, wildcard requirements and unknown sources on top.
 
 ## Standing rule
 
@@ -55,7 +56,7 @@ CLI, has none either.
 1. Say what it does that the standard library will not.
 2. Say which crate uses it and which boundary it sits behind.
 3. Check the licence, and the licences of everything it pulls in.
-4. Add a row above, then run `make deps`.
+4. Add a row above, then run `make deps` and `make deny`.
 
 Anything that can open a socket, spawn a process, or touch the filesystem
 outside the archive directory needs more than a row: it needs an argument in

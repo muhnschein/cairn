@@ -1,6 +1,11 @@
 //! Starting a real daemon over a crafted archive, and talking to it.
 //!
 //! Each test binary compiles this module separately and uses part of it.
+// a panic in test support is the failure report.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+// SCOPE §7.1 says no process is spawned; clippy.toml enforces it. Here
+// the daemon and CLI under test are processes.
+#![allow(clippy::disallowed_methods)]
 #![allow(dead_code)]
 
 use std::io::{Read, Write};

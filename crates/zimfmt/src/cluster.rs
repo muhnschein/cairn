@@ -47,7 +47,8 @@ impl<'a> Cluster<'a> {
         if first < offset_size || first % offset_size != 0 || first > body.len() {
             return Err(Error::Cluster("bad first offset"));
         }
-        let blob_count = (first / offset_size - 1) as u32;
+        let blob_count = u32::try_from(first / offset_size - 1)
+            .map_err(|_| Error::Cluster("blob count overflow"))?;
         Ok(Cluster {
             body,
             offset_size,
@@ -136,6 +137,9 @@ pub fn check_raw(raw: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    //! Offsets here are the fixtures' own, sized by the test.
+    #![allow(clippy::cast_possible_truncation)]
+
     use super::*;
 
     fn uncompressed(blobs: &[&[u8]]) -> Vec<u8> {

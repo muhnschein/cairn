@@ -3,6 +3,14 @@
 //! Test-only: nothing in cairn writes ZIM files.
 
 #![forbid(unsafe_code)]
+// A builder used only by tests: a panic here is a broken fixture, reported
+// where it is written. Field widths are the format's own, so the casts are
+// bounded by the ZIM layout rather than by the value.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::cast_possible_truncation
+)]
 
 /// ZIM magic number.
 pub const MAGIC: u32 = 72_173_914;
@@ -244,7 +252,7 @@ impl Builder {
                 }
             });
             let payload: Vec<u8> = front.iter().flat_map(|i| i.to_le_bytes()).collect();
-            for e in entries.iter_mut() {
+            for e in &mut entries {
                 if matches!(e.kind, Kind::TitleListing) {
                     e.kind = Kind::Content {
                         mime: listing_mime,
@@ -260,8 +268,7 @@ impl Builder {
             entries
                 .iter()
                 .position(|e| e.ns == ns && e.url == url)
-                .map(|i| i as u32)
-                .unwrap_or(u32::MAX)
+                .map_or(u32::MAX, |i| i as u32)
         };
 
         // Pack blobs into clusters. The listing goes into one of its own,
@@ -403,8 +410,7 @@ impl Builder {
         let main_page = self
             .main_page
             .as_deref()
-            .map(|u| index_of(self.content_ns(), u))
-            .unwrap_or(u32::MAX);
+            .map_or(u32::MAX, |u| index_of(self.content_ns(), u));
 
         let mut h = Vec::with_capacity(80);
         h.extend_from_slice(&MAGIC.to_le_bytes());

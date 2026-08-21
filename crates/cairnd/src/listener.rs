@@ -12,7 +12,9 @@ use crate::config::Listen;
 /// A bound listener.
 #[derive(Debug)]
 pub enum Listener {
+    /// A bound unix socket.
     Unix(UnixListener),
+    /// A bound loopback TCP socket.
     Tcp(TcpListener),
 }
 
@@ -27,14 +29,14 @@ impl Listener {
             Listen::Unix(path) => {
                 clear_stale_socket(path)?;
                 let l = UnixListener::bind(path)
-                    .map_err(|e| context(format!("cannot listen on {listen}"), e))?;
+                    .map_err(|e| context(&format!("cannot listen on {listen}"), &e))?;
                 std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-                    .map_err(|e| context(format!("cannot set mode on {}", path.display()), e))?;
+                    .map_err(|e| context(&format!("cannot set mode on {}", path.display()), &e))?;
                 Ok(Listener::Unix(l))
             }
             Listen::Tcp(addr) => TcpListener::bind(addr)
                 .map(Listener::Tcp)
-                .map_err(|e| context(format!("cannot listen on {listen}"), e)),
+                .map_err(|e| context(&format!("cannot listen on {listen}"), &e)),
         }
     }
 
@@ -74,7 +76,7 @@ impl Listener {
 }
 
 /// Keep the subject of a failure attached to it: a bare ENOENT names nothing.
-fn context(what: String, e: io::Error) -> io::Error {
+fn context(what: &str, e: &io::Error) -> io::Error {
     io::Error::new(e.kind(), format!("{what}: {e}"))
 }
 
@@ -94,7 +96,9 @@ fn clear_stale_socket(path: &Path) -> io::Result<()> {
 /// An accepted connection.
 #[derive(Debug)]
 pub enum Stream {
+    /// An accepted unix connection.
     Unix(UnixStream),
+    /// An accepted TCP connection.
     Tcp(TcpStream),
 }
 
@@ -144,5 +148,81 @@ impl Write for Stream {
             Stream::Unix(s) => s.flush(),
             Stream::Tcp(s) => s.flush(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    /// A directory under the target dir, removed on drop.
+    struct Dir(PathBuf);
+
+    impl Dir {
+        fn new(tag: &str) -> Dir {
+            let p = std::env::temp_dir().join(format!(
+                "cairnd-listener-{tag}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&p);
+            std::fs::create_dir_all(&p).expect("temp dir");
+            Dir(p)
+        }
+    }
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn preflight_names_the_missing_directory() {
+        let listen = Listen::Unix(PathBuf::from("/nonexistent-cairn-dir/cairn.sock"));
+        let e = Listener::preflight(&listen).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        // A bare ENOENT sends an operator looking at the socket, not the
+        // directory that does not exist.
+        assert!(e.to_string().contains("/nonexistent-cairn-dir"), "{e}");
+        assert!(e.to_string().contains("RuntimeDirectory"), "{e}");
+    }
+
+    #[test]
+    fn preflight_passes_for_a_tcp_listener_and_an_existing_directory() {
+        let dir = Dir::new("preflight");
+        let sock = dir.0.join("cairn.sock");
+        Listener::preflight(&Listen::Unix(sock)).expect("directory exists");
+        let addr = "127.0.0.1:0".parse().expect("literal address");
+        Listener::preflight(&Listen::Tcp(addr)).expect("tcp needs no directory");
+    }
+
+    #[test]
+    fn a_socket_left_by_a_dead_daemon_is_removed() {
+        let dir = Dir::new("stale");
+        let sock = dir.0.join("cairn.sock");
+        // A bound-then-dropped listener leaves the file behind, which is what
+        // a killed daemon leaves.
+        drop(UnixListener::bind(&sock).expect("bind"));
+        assert!(sock.exists());
+
+        let l = Listener::bind(&Listen::Unix(sock.clone()), 0o600).expect("rebind over the stale");
+        assert!(matches!(l, Listener::Unix(_)));
+        let mode = std::fs::metadata(&sock).expect("stat").permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "the mode is set after binding");
+    }
+
+    #[test]
+    fn a_socket_a_live_daemon_holds_is_not_removed() {
+        let dir = Dir::new("live");
+        let sock = dir.0.join("cairn.sock");
+        let held = UnixListener::bind(&sock).expect("bind");
+
+        let e = Listener::bind(&Listen::Unix(sock.clone()), 0o600).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AddrInUse, "{e}");
+        assert!(sock.exists(), "a live daemon's socket must survive");
+        drop(held);
     }
 }

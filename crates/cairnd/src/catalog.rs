@@ -24,6 +24,8 @@ impl Archives {
     }
 }
 
+// Used point-free as `map_err(map)`, which needs an owned argument.
+#[allow(clippy::needless_pass_by_value)]
 fn map(e: LookupError) -> CatalogError {
     match e {
         LookupError::NoSuchArchive => CatalogError::NoSuchArchive,
@@ -96,5 +98,23 @@ impl Catalog for Archives {
                 path: s.path,
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two layers have separate error types on purpose; this is the only
+    /// place they meet, and a wrong arm here turns a missing entry into a 503.
+    #[test]
+    fn lookup_failures_map_onto_the_fault_the_client_sees() {
+        assert_eq!(map(LookupError::NoSuchArchive), CatalogError::NoSuchArchive);
+        assert_eq!(map(LookupError::NoSuchEntry), CatalogError::NoSuchEntry);
+        assert_eq!(
+            map(LookupError::Corrupt(archive::zimfmt::Error::MimeList)),
+            CatalogError::Corrupt,
+            "a malformed archive is 503 for that archive, never a 500"
+        );
     }
 }
