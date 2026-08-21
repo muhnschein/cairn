@@ -1,5 +1,8 @@
 //! `make smoke`: a real daemon and the real CLI over a crafted archive.
 
+// a panic in a test is the failure report.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 mod common;
 
 use common::{Daemon, SAMPLE_UUID, ZSTD_UUID, parse_replies};

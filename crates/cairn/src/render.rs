@@ -253,7 +253,10 @@ fn count(v: &Value, key: &str) -> String {
 }
 
 fn indent(block: &str) -> String {
-    block.lines().map(|l| format!("  {l}\n")).collect()
+    block.lines().fold(String::new(), |mut out, l| {
+        let _ = writeln!(out, "  {l}");
+        out
+    })
 }
 
 #[cfg(test)]

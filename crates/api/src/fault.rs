@@ -8,21 +8,37 @@ use crate::response::Response;
 /// Every way a request can be refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Fault {
+    /// Malformed request line, header block, or target.
     BadRequest,
+    /// The uuid is not the canonical lowercase hyphenated form.
     BadUuid,
+    /// The entry path did not survive canonical percent-decoding.
     BadPath,
+    /// `q` is missing, too long, or not decodable.
     BadQuery,
+    /// A request carried a body; no endpoint accepts one.
     BodyNotAllowed,
+    /// No token, or the wrong one. Returned before routing.
     Unauthorized,
+    /// No such archive, or no such entry. The two are not distinguished.
     NotFound,
+    /// Anything but `GET` or `HEAD`.
     MethodNotAllowed,
+    /// The client stopped sending inside a read timeout.
     Timeout,
+    /// The request line exceeded `max_request_line`.
     UriTooLong,
+    /// A well-formed `Range` that cannot be satisfied, or a multi-range one.
     RangeNotSatisfiable,
+    /// The connection is over its request rate ceiling.
     TooManyRequests,
+    /// The header block exceeded `max_header_bytes`, or there were too many.
     HeadersTooLarge,
+    /// The archive is present but a region of it is malformed.
     ArchiveUnavailable,
+    /// Anything but `HTTP/1.1`.
     VersionNotSupported,
+    /// A bug here, not in the request.
     Internal,
 }
 

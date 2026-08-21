@@ -1,5 +1,8 @@
 //! Catalog behaviour over crafted archives.
 
+// a panic in a test is the failure report.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use archive::{Catalog, Limits, LookupError};
 use testutil::{Builder, Compression, TempDir};
 
@@ -283,4 +286,176 @@ fn an_archive_without_a_title_ordering_says_so_and_suggests_nothing() {
     assert!(c.suggest(&uuid, "A", 10).unwrap().is_empty());
     // Everything else still works.
     assert_eq!(c.entry(&uuid, "a.html").unwrap().blob.as_slice(), b"a");
+}
+
+#[test]
+fn a_redirect_chain_is_abandoned_rather_than_walked() {
+    // SCOPE §5.1: chains are followed to a fixed small depth. A chain longer
+    // than that is a crafted archive, not a deep site.
+    let hops = usize::try_from(zimfmt::MAX_REDIRECT_HOPS).unwrap();
+    let mut b = Builder::new().content("end.html", "End", 0, b"arrived");
+    // r0 -> r1 -> ... -> r{n} -> end.html, one hop longer than allowed.
+    for i in 0..=hops {
+        let to = if i == hops {
+            "end.html".to_owned()
+        } else {
+            format!("r{}.html", i + 1)
+        };
+        b = b.redirect(&format!("r{i}.html"), &format!("R{i}"), &to);
+    }
+    let dir = TempDir::new("redirect-depth");
+    dir.write("chain.zim", &b.build());
+    let c = catalog(&dir);
+    let uuid = uuid_of(&c);
+
+    // The far end of the chain is still reachable from close enough in.
+    let near = c.entry(&uuid, &format!("r{hops}.html")).expect("one hop");
+    assert_eq!(near.path, "end.html");
+
+    match c.entry(&uuid, "r0.html") {
+        Err(LookupError::Corrupt(_)) => {}
+        other => panic!("a chain past the limit must be refused, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_redirect_to_itself_does_not_loop() {
+    let dir = TempDir::new("redirect-self");
+    dir.write(
+        "loop.zim",
+        &Builder::new()
+            .content("real.html", "Real", 0, b"x")
+            .redirect("self.html", "Self", "self.html")
+            .build(),
+    );
+    let c = catalog(&dir);
+    let uuid = uuid_of(&c);
+    match c.entry(&uuid, "self.html") {
+        Err(LookupError::Corrupt(_)) => {}
+        other => panic!("a self-redirect must be refused, got {other:?}"),
+    }
+    // The rest of the archive still serves.
+    assert_eq!(c.entry(&uuid, "real.html").expect("real").path, "real.html");
+}
+
+#[test]
+fn metadata_stops_at_the_entry_limit() {
+    let mut b = Builder::new().content("index.html", "Index", 0, b"x");
+    for i in 0..12 {
+        b = b.content_in(b'M', &format!("Key{i:02}"), "", 2, b"value");
+    }
+    let dir = TempDir::new("meta-count");
+    dir.write("many.zim", &b.build());
+
+    let limits = Limits {
+        max_metadata_entries: 5,
+        ..Limits::default()
+    };
+    let c = Catalog::open_dir(dir.path(), limits).expect("open");
+    let uuid = c.archives()[0].uuid().to_string();
+    let m = c.metadata(&uuid).expect("metadata");
+    assert_eq!(
+        m.text.len() + m.binary.len(),
+        5,
+        "a scan bounded by count, not by what the archive declares"
+    );
+}
+
+#[test]
+fn a_metadata_value_over_the_byte_limit_is_reported_as_binary() {
+    // Not dropped: the operator should see the key exists. Not decoded into
+    // memory either, which is the point of the bound.
+    let dir = TempDir::new("meta-bytes");
+    dir.write(
+        "big.zim",
+        &Builder::new()
+            .content("index.html", "Index", 0, b"x")
+            .content_in(b'M', "Title", "", 2, b"Small")
+            .content_in(b'M', "Long", "", 2, &vec![b'a'; 4096])
+            .build(),
+    );
+    let limits = Limits {
+        max_metadata_bytes: 64,
+        ..Limits::default()
+    };
+    let c = Catalog::open_dir(dir.path(), limits).expect("open");
+    let uuid = c.archives()[0].uuid().to_string();
+    let m = c.metadata(&uuid).expect("metadata");
+
+    assert!(m.text.iter().any(|(k, v)| k == "Title" && v == "Small"));
+    assert!(m.binary.iter().any(|k| k == "Long"), "{m:?}");
+    assert!(!m.text.iter().any(|(k, _)| k == "Long"), "{m:?}");
+}
+
+#[test]
+fn an_archive_with_a_nil_uuid_is_refused_at_open() {
+    // SCOPE §5.3: identity is the uuid, so an archive without one has no id
+    // the API could address it by.
+    let dir = TempDir::new("nil-uuid");
+    dir.write("nil.zim", &testutil::sample().uuid([0u8; 16]).build());
+    let err = Catalog::open_dir(dir.path(), Limits::default()).unwrap_err();
+    assert!(err.to_string().contains("nil.zim"), "{err}");
+}
+
+#[test]
+fn a_file_that_is_not_an_archive_is_refused_by_name() {
+    let dir = TempDir::new("not-zim");
+    dir.write(
+        "broken.zim",
+        b"this is not a ZIM file, but it is named like one",
+    );
+    let err = Catalog::open_dir(dir.path(), Limits::default()).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("broken.zim"), "{msg}");
+}
+
+#[test]
+fn a_truncation_that_cuts_a_declared_region_is_refused_at_open() {
+    // The header and the pointer lists are checked against the file length
+    // when the archive is opened, so this never reaches a request.
+    let full = testutil::sample().build();
+    let dir = TempDir::new("truncated-head");
+    dir.write("cut.zim", &full[..64]);
+    let err = Catalog::open_dir(dir.path(), Limits::default()).unwrap_err();
+    assert!(err.to_string().contains("cut.zim"), "{err}");
+}
+
+#[test]
+fn a_truncation_that_only_cuts_cluster_bytes_never_yields_wrong_bytes() {
+    // Cluster contents are checked when read, not at open, so this archive
+    // opens. What matters is that no entry comes back with the wrong bytes:
+    // every read either returns exactly what was stored, or fails.
+    let full = testutil::sample().build();
+    let whole = TempDir::new("truncated-whole");
+    whole.write("full.zim", &full);
+    let reference = catalog(&whole);
+    let ref_uuid = uuid_of(&reference);
+    let paths = ["index.html", "logo.png", "notes.txt"];
+    let expected: Vec<Vec<u8>> = paths
+        .iter()
+        .map(|p| {
+            let e = reference.entry(&ref_uuid, p).expect("reference entry");
+            e.blob.as_slice().to_vec()
+        })
+        .collect();
+
+    for cut in [1, 8, 64] {
+        let dir = TempDir::new(&format!("truncated-tail-{cut}"));
+        dir.write("cut.zim", &full[..full.len() - cut]);
+        let Ok(c) = Catalog::open_dir(dir.path(), Limits::default()) else {
+            continue; // refused at open is also a correct answer
+        };
+        let uuid = c.archives()[0].uuid().to_string();
+        for (path, want) in paths.iter().zip(&expected) {
+            match c.entry(&uuid, path) {
+                Ok(e) => assert_eq!(
+                    e.blob.as_slice(),
+                    &want[..],
+                    "{path} served the wrong bytes after a {cut}-byte truncation"
+                ),
+                Err(LookupError::Corrupt(_) | LookupError::NoSuchEntry) => {}
+                Err(other) => panic!("{path}: unexpected {other:?}"),
+            }
+        }
+    }
 }

@@ -103,10 +103,9 @@ impl<'a> Zim<'a> {
             && let Target::Content { cluster, blob } = self.dirent(entry)?.target
             && let Some((start, end)) = self.mapped_blob(cluster, blob)?
         {
-            return Ok(Some(TitleIndex {
-                at: start,
-                count: ((end - start) / 4) as u32,
-            }));
+            let count = u32::try_from((end - start) / 4)
+                .map_err(|_| Error::Cluster("title listing too long"))?;
+            return Ok(Some(TitleIndex { at: start, count }));
         }
         if self.header().has_title_index() {
             return Ok(Some(TitleIndex {

@@ -1,5 +1,7 @@
 //! Percent-decoding. Exactly once, never on a decoded result.
 
+use std::fmt::Write;
+
 /// Why a target could not be decoded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodeError {
@@ -85,7 +87,9 @@ pub fn encode_header_value(s: &str) -> String {
             | b','
             | b'='
             | b'\'' => out.push(byte as char),
-            other => out.push_str(&format!("%{other:02X}")),
+            other => {
+                let _ = write!(out, "%{other:02X}");
+            }
         }
     }
     out

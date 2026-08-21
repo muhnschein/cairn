@@ -52,6 +52,9 @@ pub fn abi_version() -> Result<i32, std::io::Error> {
     if rc < 0 {
         Err(std::io::Error::last_os_error())
     } else {
+        // The ABI version is a small positive integer; the syscall returns
+        // it in a register-wide value.
+        #[allow(clippy::cast_possible_truncation)]
         Ok(rc as i32)
     }
 }
@@ -91,11 +94,12 @@ pub fn restrict(read_only: &[&Path], abi: i32) -> Result<i32, std::io::Error> {
     };
 
     // SAFETY: `attr` outlives the call and `size` matches what this ABI accepts.
-    let ruleset =
-        unsafe { libc::syscall(SYS_CREATE_RULESET, &attr as *const RulesetAttr, size, 0u32) };
+    let ruleset = unsafe { libc::syscall(SYS_CREATE_RULESET, &raw const attr, size, 0u32) };
     if ruleset < 0 {
         return Err(std::io::Error::last_os_error());
     }
+    // A file descriptor, which the kernel returned as a register-wide value.
+    #[allow(clippy::cast_possible_truncation)]
     let ruleset = ruleset as libc::c_int;
     let close_ruleset = OwnedFd(ruleset);
 
@@ -118,7 +122,7 @@ pub fn restrict(read_only: &[&Path], abi: i32) -> Result<i32, std::io::Error> {
                 SYS_ADD_RULE,
                 ruleset,
                 RULE_PATH_BENEATH,
-                &rule as *const PathBeneathAttr,
+                &raw const rule,
                 0u32,
             )
         };

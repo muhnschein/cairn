@@ -37,10 +37,9 @@ pub const VERSION: &str = "2026.08";
 /// Map a parse failure onto the fault the client should see.
 pub fn fault_for_parse_error(e: ParseError) -> Fault {
     match e {
-        ParseError::Incomplete => Fault::BadRequest,
         ParseError::TooLong("request line") => Fault::UriTooLong,
         ParseError::TooLong(_) => Fault::HeadersTooLarge,
-        ParseError::Malformed(_) => Fault::BadRequest,
+        ParseError::Incomplete | ParseError::Malformed(_) => Fault::BadRequest,
         ParseError::UnsupportedVersion => Fault::VersionNotSupported,
         ParseError::BodyNotAllowed => Fault::BodyNotAllowed,
     }

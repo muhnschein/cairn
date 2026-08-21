@@ -262,6 +262,7 @@ fn program(allowed: &[libc::c_long], action: Action) -> Vec<Insn> {
             code: JMP_JEQ_K,
             jt: 0,
             jf: 1,
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             k: nr as u32,
         });
         p.push(Insn {
@@ -278,6 +279,7 @@ fn program(allowed: &[libc::c_long], action: Action) -> Vec<Insn> {
             code: JMP_JEQ_K,
             jt: 0,
             jf: 1,
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             k: nr as u32,
         });
         p.push(Insn {
@@ -313,8 +315,16 @@ pub fn set_no_new_privs() -> Result<(), std::io::Error> {
 /// calling thread would leave every worker unconfined.
 pub fn install(allowed: &[libc::c_long], action: Action) -> Result<usize, std::io::Error> {
     let insns = program(allowed, action);
+    // A truncated length would install a filter that is not the one measured,
+    // which is the whole property here. Refuse instead.
+    let len = u16::try_from(insns.len()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("seccomp program is {} instructions", insns.len()),
+        )
+    })?;
     let prog = Prog {
-        len: insns.len() as u16,
+        len,
         filter: insns.as_ptr(),
     };
     // SAFETY: `insns` outlives the call, `prog.len` matches its length, and
@@ -324,7 +334,7 @@ pub fn install(allowed: &[libc::c_long], action: Action) -> Result<usize, std::i
             libc::SYS_seccomp,
             SECCOMP_SET_MODE_FILTER,
             SECCOMP_FILTER_FLAG_TSYNC,
-            &prog as *const Prog,
+            &raw const prog,
         )
     };
     if rc != 0 {

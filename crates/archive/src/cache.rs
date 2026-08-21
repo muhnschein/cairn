@@ -13,10 +13,15 @@ pub type Key = (usize, u32);
 /// Hit/miss counters reported by `/v1/status`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Stats {
+    /// Blobs served from a cluster already decoded.
     pub hits: u64,
+    /// Blobs that had to decode a cluster.
     pub misses: u64,
+    /// Clusters dropped to stay inside the budget.
     pub evictions: u64,
+    /// Decompressed bytes currently held.
     pub bytes: usize,
+    /// Clusters currently held.
     pub entries: usize,
 }
 
@@ -58,17 +63,14 @@ impl ClusterCache {
         let mut inner = self.lock();
         inner.tick += 1;
         let tick = inner.tick;
-        match inner.slots.get_mut(&key) {
-            Some(slot) => {
-                slot.last = tick;
-                let found = (Arc::clone(&slot.body), slot.offset_size);
-                inner.hits += 1;
-                Some(found)
-            }
-            None => {
-                inner.misses += 1;
-                None
-            }
+        if let Some(slot) = inner.slots.get_mut(&key) {
+            slot.last = tick;
+            let found = (Arc::clone(&slot.body), slot.offset_size);
+            inner.hits += 1;
+            Some(found)
+        } else {
+            inner.misses += 1;
+            None
         }
     }
 
@@ -153,7 +155,9 @@ impl ClusterCache {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         // A panic in a cache method would poison the lock; there is no state to
         // repair, so the poisoned guard is taken as-is.
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -180,6 +184,68 @@ mod tests {
         let body = c.insert((0, 0), vec![0; 500], 4);
         assert_eq!(body.len(), 500);
         assert_eq!(c.stats().entries, 0);
+    }
+
+    #[test]
+    fn a_body_exactly_at_the_budget_is_cached() {
+        // The refusal is `>`, not `>=`: a cluster the size of the whole budget
+        // is the one the cache is most worth having.
+        let c = ClusterCache::new(100);
+        c.insert((0, 0), vec![0; 100], 4);
+        assert_eq!(c.stats().entries, 1);
+        assert_eq!(c.stats().bytes, 100);
+    }
+
+    #[test]
+    fn a_full_budget_body_evicts_everything_else() {
+        let c = ClusterCache::new(100);
+        c.insert((0, 0), vec![0; 40], 4);
+        c.insert((0, 1), vec![0; 40], 4);
+        c.insert((0, 2), vec![0; 100], 4);
+        let s = c.stats();
+        assert_eq!(s.entries, 1, "only the new body fits");
+        assert_eq!(s.bytes, 100);
+        assert_eq!(s.evictions, 2);
+    }
+
+    #[test]
+    fn reinserting_a_key_replaces_rather_than_accumulates() {
+        let c = ClusterCache::new(1000);
+        c.insert((0, 0), vec![0; 100], 4);
+        c.insert((0, 0), vec![0; 250], 8);
+        let s = c.stats();
+        assert_eq!(s.entries, 1);
+        assert_eq!(s.bytes, 250, "the old body's bytes must be given back");
+        let (body, offset_size) = c.get((0, 0)).unwrap();
+        assert_eq!(body.len(), 250);
+        assert_eq!(offset_size, 8, "the replacement's offset size wins");
+    }
+
+    #[test]
+    fn counters_separate_hits_from_misses() {
+        let c = ClusterCache::new(1000);
+        assert!(c.get((0, 0)).is_none());
+        c.insert((0, 0), vec![0; 10], 4);
+        assert!(c.get((0, 0)).is_some());
+        assert!(c.get((0, 0)).is_some());
+        assert!(c.get((0, 1)).is_none());
+        let s = c.stats();
+        assert_eq!((s.hits, s.misses), (2, 2));
+    }
+
+    #[test]
+    fn one_archive_is_forgotten_without_disturbing_another() {
+        let c = ClusterCache::new(1000);
+        c.insert((0, 0), vec![0; 100], 4);
+        c.insert((1, 7), vec![0; 60], 4);
+        c.forget_archive(2); // nothing cached for it
+        assert_eq!(c.stats().entries, 2);
+        c.forget_archive(1);
+        let s = c.stats();
+        assert_eq!((s.entries, s.bytes), (1, 100));
+        assert!(c.get((0, 0)).is_some());
+        // Forgetting is not eviction: the counter is for pressure, not cleanup.
+        assert_eq!(c.stats().evictions, 0);
     }
 
     #[test]

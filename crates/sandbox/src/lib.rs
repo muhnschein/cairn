@@ -40,8 +40,11 @@ impl State {
 /// One layer's result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layer {
+    /// `no_new_privs`, `landlock`, or `seccomp`.
     pub name: &'static str,
+    /// Whether it applied, and if not, why not.
     pub state: State,
+    /// ABI version, filter shape, or the reason it is missing.
     pub detail: Option<String>,
 }
 
@@ -85,7 +88,9 @@ impl Default for Policy {
 /// What was actually applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
+    /// Whether `sandbox = require` was set.
     pub required: bool,
+    /// One entry per layer, in the order they were applied.
     pub layers: Vec<Layer>,
 }
 
@@ -109,6 +114,7 @@ impl Report {
 /// Refusal to start, raised when `require` is set and a layer did not apply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Incomplete {
+    /// The layers that did not apply.
     pub layers: Vec<Layer>,
 }
 

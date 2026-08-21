@@ -66,3 +66,37 @@ macro_rules! info {
 macro_rules! debug {
     ($($arg:tt)*) => { $crate::log::emit($crate::config::Level::Debug, format_args!($($arg)*)) };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The level is process-global, so this restores it rather than leaving
+    /// the rest of the suite at whatever it set.
+    struct Restore(Level);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            set_level(self.0);
+        }
+    }
+
+    #[test]
+    fn a_level_admits_itself_and_everything_louder() {
+        let _restore = Restore(Level::Info);
+        set_level(Level::Warn);
+        assert!(enabled(Level::Error));
+        assert!(enabled(Level::Warn));
+        assert!(!enabled(Level::Info));
+        assert!(!enabled(Level::Debug));
+
+        set_level(Level::Debug);
+        for l in [Level::Error, Level::Warn, Level::Info, Level::Debug] {
+            assert!(enabled(l), "{l:?} should print at debug");
+        }
+
+        set_level(Level::Error);
+        assert!(enabled(Level::Error));
+        assert!(!enabled(Level::Warn), "error is the quietest level");
+    }
+}

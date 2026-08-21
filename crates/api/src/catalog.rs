@@ -19,13 +19,21 @@ pub enum CatalogError {
 /// One archive in a listing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveSummary {
+    /// Canonical lowercase hyphenated uuid from the archive header.
     pub uuid: String,
+    /// Archive title, as stored.
     pub title: String,
+    /// Entries in the archive, redirects included.
     pub entry_count: u64,
+    /// Clusters in the archive.
     pub cluster_count: u64,
+    /// Path of the archive's main page, when it declares one.
     pub main_page: Option<String>,
+    /// ZIM format major version.
     pub major_version: u16,
+    /// ZIM format minor version.
     pub minor_version: u16,
+    /// Namespace holding content: `C` in modern archives, `A` in older ones.
     pub content_namespace: char,
     /// Whether `/suggest` can answer for this archive at all.
     pub suggest: bool,
@@ -45,14 +53,18 @@ pub struct EntryContent {
 /// A title-prefix suggestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Suggestion {
+    /// Title as stored, which is what the prefix matched.
     pub title: String,
+    /// Path to pass back to the entry endpoint.
     pub path: String,
 }
 
 /// Archive metadata, split by whether it is text.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Metadata {
+    /// Textual metadata as `(name, value)`, in the archive order.
     pub text: Vec<(String, String)>,
+    /// Names of metadata entries whose value is not text.
     pub binary: Vec<String>,
 }
 

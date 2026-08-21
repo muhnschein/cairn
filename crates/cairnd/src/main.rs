@@ -33,13 +33,14 @@ fn run() -> i32 {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "-c" | "--config" => match args.next() {
-                Some(p) => config_path = Some(PathBuf::from(p)),
-                None => {
+            "-c" | "--config" => {
+                if let Some(p) = args.next() {
+                    config_path = Some(PathBuf::from(p));
+                } else {
                     eprintln!("cairnd: {arg} needs a path");
                     return 2;
                 }
-            },
+            }
             "--check" => check = true,
             "-V" | "--version" => {
                 println!("cairnd {}", cairnd::VERSION);
@@ -125,11 +126,7 @@ fn serve(config: Config, check: bool) -> Result<i32, Box<dyn std::error::Error>>
     // 3. Workers, while the process can still create threads.
     let metrics = Arc::new(Metrics::default());
     let gate = Arc::new(Gate::new());
-    let workers = spawn_workers(
-        Arc::clone(&listener),
-        Arc::clone(&gate),
-        config.max_connections,
-    )?;
+    let workers = spawn_workers(&listener, &gate, config.max_connections)?;
     gate.wait_for_workers(config.max_connections);
 
     let seed = random_seed();
@@ -224,12 +221,13 @@ fn random_seed() -> u64 {
     let mut bytes = [0u8; 8];
     // SAFETY: getrandom fills exactly the buffer it is given its length for.
     let rc = unsafe { libc::getrandom(bytes.as_mut_ptr().cast(), bytes.len(), 0) };
-    if rc == bytes.len() as isize {
+    if usize::try_from(rc).is_ok_and(|n| n == bytes.len()) {
         return u64::from_ne_bytes(bytes);
     }
     warn!("getrandom unavailable, seeding from the clock");
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
+        // A seed, not a clock reading: the low 64 bits are all it needs.
+        .map(|d| u64::try_from(d.as_nanos() & u128::from(u64::MAX)).unwrap_or(0))
         .unwrap_or(0x9E37_79B9_7F4A_7C15)
 }

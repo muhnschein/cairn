@@ -4,7 +4,7 @@
 //! are errors: a typo in a limit must not silently leave it at the default.
 
 use std::fmt;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -42,42 +42,74 @@ pub enum SandboxMode {
 /// Log verbosity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
+    /// Failures only.
     Error,
+    /// Failures and things that will become failures.
     Warn,
+    /// The default: startup, confinement, and refusals.
     Info,
+    /// Adds per-request detail.
     Debug,
 }
 
 /// The daemon's whole configuration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
+    /// Unix socket path or loopback TCP address.
     pub listen: Listen,
+    /// Mode applied to the unix socket after binding.
     pub socket_mode: u32,
+    /// Directory of `*.zim` files, not descended into.
     pub archive_dir: PathBuf,
+    /// Shared bearer token, or `None` for an open socket.
     pub auth_token: Option<String>,
+    /// Whether a partially applied sandbox is fatal.
     pub sandbox: SandboxMode,
+    /// Whether to build a Landlock ruleset at all.
     pub sandbox_landlock: bool,
+    /// Whether to install a seccomp filter at all.
     pub sandbox_seccomp: bool,
+    /// What a syscall outside the allowlist does.
     pub sandbox_action: Action,
+    /// Size of the worker pool, and so the connection ceiling.
     pub max_connections: usize,
+    /// How long a client may take to finish a request.
     pub read_timeout: Duration,
+    /// How long a response may take to write.
     pub write_timeout: Duration,
+    /// Requests one connection may make before it is closed.
     pub keepalive_requests: u32,
+    /// How long an idle connection is held open.
     pub keepalive_timeout: Duration,
+    /// Requests per second one connection may sustain.
     pub request_rate: f64,
+    /// Requests one connection may make in a burst.
     pub request_burst: f64,
+    /// Ceiling on one decompressed cluster.
     pub max_cluster_bytes: usize,
+    /// Total decompressed bytes the shared cluster cache may hold.
     pub cluster_cache_bytes: usize,
+    /// Ceiling on the bytes one metadata scan may decode.
     pub max_metadata_bytes: usize,
+    /// Ceiling on the entries one metadata scan may read.
     pub max_metadata_entries: usize,
+    /// Longest request line, method and target included.
     pub max_request_line: usize,
+    /// Longest header block.
     pub max_header_bytes: usize,
+    /// Most headers in one request.
     pub max_headers: usize,
+    /// Longest decoded entry path.
     pub max_path_bytes: usize,
+    /// Longest `q` value accepted by `/suggest`.
     pub suggest_max_query: usize,
+    /// Most suggestions returned.
     pub suggest_max_results: usize,
+    /// Sent with entry content; see `SECURITY.md`.
     pub content_security_policy: String,
+    /// Verbosity of the daemon log.
     pub log_level: Level,
+    /// Whether to log one line per request.
     pub access_log: bool,
 }
 
@@ -119,7 +151,9 @@ impl Default for Config {
 /// A configuration file that could not be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError {
+    /// Line the failure was found on, or 0 for the file as a whole.
     pub line: usize,
+    /// What was wrong, written for the operator.
     pub message: String,
 }
 
@@ -161,16 +195,18 @@ impl Config {
                 message: format!("expected `key = value`, found {line:?}"),
             })?;
             let (key, value) = (key.trim(), value.trim());
+            // The line alone makes an operator count lines; the key makes the
+            // message searchable in cairn.conf(5).
             let err = |m: String| ConfigError {
                 line: n,
-                message: m,
+                message: format!("{key}: {m}"),
             };
 
             match key {
                 "listen" => c.listen = parse_listen(value).map_err(err)?,
                 "socket_mode" => {
                     c.socket_mode = u32::from_str_radix(value.trim_start_matches("0o"), 8)
-                        .map_err(|_| err(format!("not an octal mode: {value:?}")))?
+                        .map_err(|_| err(format!("not an octal mode: {value:?}")))?;
                 }
                 "archive_dir" => c.archive_dir = PathBuf::from(value),
                 "auth_token" => c.auth_token = Some(value.to_owned()),
@@ -191,13 +227,15 @@ impl Config {
                 "sandbox_seccomp" => c.sandbox_seccomp = parse_bool(value).map_err(err)?,
                 "sandbox_action" => {
                     c.sandbox_action = Action::parse(value)
-                        .ok_or_else(|| err(format!("expected kill|errno|log, found {value:?}")))?
+                        .ok_or_else(|| err(format!("expected kill|errno|log, found {value:?}")))?;
                 }
                 "max_connections" => c.max_connections = parse_size(value).map_err(err)?,
                 "read_timeout" => c.read_timeout = parse_duration(value).map_err(err)?,
                 "write_timeout" => c.write_timeout = parse_duration(value).map_err(err)?,
                 "keepalive_requests" => {
-                    c.keepalive_requests = parse_size(value).map_err(err)? as u32
+                    let n = parse_size(value).map_err(err)?;
+                    c.keepalive_requests = u32::try_from(n)
+                        .map_err(|_| err(format!("{n} is more than a connection can serve")))?;
                 }
                 "keepalive_timeout" => c.keepalive_timeout = parse_duration(value).map_err(err)?,
                 "request_rate" => c.request_rate = parse_rate(value).map_err(err)?,
@@ -206,7 +244,7 @@ impl Config {
                 "cluster_cache_bytes" => c.cluster_cache_bytes = parse_size(value).map_err(err)?,
                 "max_metadata_bytes" => c.max_metadata_bytes = parse_size(value).map_err(err)?,
                 "max_metadata_entries" => {
-                    c.max_metadata_entries = parse_size(value).map_err(err)?
+                    c.max_metadata_entries = parse_size(value).map_err(err)?;
                 }
                 "max_request_line" => c.max_request_line = parse_size(value).map_err(err)?,
                 "max_header_bytes" => c.max_header_bytes = parse_size(value).map_err(err)?,
@@ -214,7 +252,7 @@ impl Config {
                 "max_path_bytes" => c.max_path_bytes = parse_size(value).map_err(err)?,
                 "suggest_max_query" => c.suggest_max_query = parse_size(value).map_err(err)?,
                 "suggest_max_results" => c.suggest_max_results = parse_size(value).map_err(err)?,
-                "content_security_policy" => c.content_security_policy = value.to_owned(),
+                "content_security_policy" => value.clone_into(&mut c.content_security_policy),
                 "log_level" => {
                     c.log_level = match value {
                         "error" => Level::Error,
@@ -258,7 +296,11 @@ impl Config {
         if self.max_cluster_bytes == 0 {
             return Err(bad("max_cluster_bytes must be non-zero"));
         }
-        if self.auth_token.as_ref().is_some_and(|t| t.is_empty()) {
+        if self
+            .auth_token
+            .as_ref()
+            .is_some_and(std::string::String::is_empty)
+        {
             return Err(bad("auth_token is empty"));
         }
         if !api::token::is_safe_header_value(&self.content_security_policy) {
@@ -309,13 +351,12 @@ fn parse_listen(value: &str) -> Result<Listen, String> {
         return Ok(Listen::Unix(PathBuf::from(path)));
     }
     if let Some(addr) = value.strip_prefix("tcp:") {
-        let mut resolved = addr
-            .to_socket_addrs()
-            .map_err(|e| format!("{addr:?}: {e}"))?
-            .collect::<Vec<_>>();
-        let addr = resolved
-            .pop()
-            .ok_or_else(|| format!("{addr:?} resolved to nothing"))?;
+        // Parsed, never resolved: `to_socket_addrs` would consult the resolver,
+        // and the scope says no DNS (§7.1). A hostname is refused here rather
+        // than looked up.
+        let addr: SocketAddr = addr
+            .parse()
+            .map_err(|_| format!("{addr:?} is not an IP address and port"))?;
         // TLS is the reverse proxy's job, so cairn never listens off-host.
         let loopback = match addr.ip() {
             IpAddr::V4(v4) => v4.is_loopback(),
@@ -419,7 +460,11 @@ log_level = debug
         assert_eq!(c.write_timeout, Duration::from_secs(120));
         assert_eq!(c.cluster_cache_bytes, 16 * 1024 * 1024);
         assert_eq!(c.max_headers, 32);
-        assert_eq!(c.request_rate, 12.5);
+        // `12.5` round-trips exactly; this asserts the parse, not float maths.
+        #[allow(clippy::float_cmp)]
+        {
+            assert_eq!(c.request_rate, 12.5);
+        }
         assert!(c.access_log);
         assert_eq!(c.log_level, Level::Debug);
         assert!(c.sandbox_policy().require);
@@ -444,6 +489,42 @@ log_level = debug
         assert!(Config::parse("listen = tcp:[::1]:8320").is_ok());
         assert!(Config::parse("listen = http://localhost").is_err());
         assert!(Config::parse("listen = unix:").is_err());
+    }
+
+    #[test]
+    fn a_hostname_is_refused_rather_than_resolved() {
+        // "No DNS" is a stated guarantee, so a hostname here must fail at the
+        // parse rather than reach the resolver. `localhost` is the one that
+        // would otherwise resolve to a loopback address and be accepted.
+        assert!(Config::parse("listen = tcp:localhost:8320").is_err());
+        assert!(Config::parse("listen = tcp:example.invalid:8320").is_err());
+        assert!(
+            Config::parse("listen = tcp:127.0.0.1").is_err(),
+            "port required"
+        );
+        assert!(Config::parse("listen = tcp:127.0.0.1:8320").is_ok());
+    }
+
+    #[test]
+    fn a_keepalive_count_that_does_not_fit_is_an_error() {
+        // The field is a u32; a larger value must be refused, not truncated
+        // into a much smaller ceiling.
+        let e = Config::parse("keepalive_requests = 4G").unwrap_err();
+        assert_eq!(e.line, 1);
+        assert!(e.to_string().contains("keepalive_requests"), "{e}");
+        assert_eq!(
+            Config::parse("keepalive_requests = 1000").map(|c| c.keepalive_requests),
+            Ok(1000)
+        );
+    }
+
+    #[test]
+    fn an_error_names_the_line_and_the_key() {
+        let text = "# a comment\nmax_connections = 8\n\nmax_headers = lots\n";
+        let e = Config::parse(text).unwrap_err();
+        assert_eq!(e.line, 4, "{e}");
+        assert!(e.to_string().contains("max_headers"), "{e}");
+        assert!(e.to_string().contains("lots"), "{e}");
     }
 
     #[test]

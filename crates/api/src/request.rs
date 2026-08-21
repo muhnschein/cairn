@@ -8,8 +8,11 @@ use crate::limits::Limits;
 /// Methods cairn answers. Everything else is carried through to a 405.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
+    /// The only method that returns a body.
     Get,
+    /// Headers of a `GET`, with no body sent.
     Head,
+    /// Anything else, refused with 405.
     Other,
 }
 
@@ -42,11 +45,17 @@ pub enum ParseError {
 /// A parsed request. The target is kept raw; only handlers decode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
+    /// Method, narrowed to what the API serves.
     pub method: Method,
+    /// Request target exactly as received.
     pub target: String,
+    /// Path portion, percent-decoded exactly once.
     pub path: String,
+    /// Query string, still encoded.
     pub query: Option<String>,
+    /// Header names lowercased; values as received.
     pub headers: Vec<(String, String)>,
+    /// Whether the connection may be reused.
     pub keep_alive: bool,
 }
 

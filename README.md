@@ -131,12 +131,18 @@ $ make fmt         # rustfmt check
 $ make man-lint    # mdoc validation
 $ make doc-lint    # rustdoc links and warnings
 $ make deps        # dependency allowlist, licences, crate boundaries
+$ make deny        # cargo-deny: advisories, licences, bans, sources
 $ make fuzz        # cargo-fuzz, nightly toolchain
+$ make fuzz-seed   # fold a fuzzing corpus into the committed seeds
 ```
+
+Fuzzing on a pull request is a smoke test. The real run is nightly, against a
+corpus that persists and grows across runs; see [`fuzz/README.md`](fuzz/README.md).
 
 Routine tests need no archive present: `crates/testutil` crafts them. Seven
 third-party crates, each with a reason in [`DEPENDENCIES.md`](DEPENDENCIES.md).
-Design decisions and what they cost are in
+What the project is and is not is in [`docs/SCOPE.md`](docs/SCOPE.md); the
+decisions checked against it, and what they cost, are in
 [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ### Layout

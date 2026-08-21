@@ -19,17 +19,29 @@ pub const NO_TITLE_INDEX: u64 = u64::MAX;
 /// The fixed-size archive header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
+    /// Format major version.
     pub major_version: u16,
+    /// Format minor version.
     pub minor_version: u16,
+    /// Archive identity; the API addresses archives by this.
     pub uuid: Uuid,
+    /// Entries in the archive, redirects included.
     pub entry_count: u32,
+    /// Clusters in the archive.
     pub cluster_count: u32,
+    /// Offset of the URL pointer list.
     pub url_ptr_pos: u64,
+    /// Offset of the title pointer list, or the sentinel meaning there is none.
     pub title_ptr_pos: u64,
+    /// Offset of the cluster pointer list.
     pub cluster_ptr_pos: u64,
+    /// Offset of the MIME type table.
     pub mime_list_pos: u64,
+    /// Entry index of the main page, or `u32::MAX` for none.
     pub main_page: u32,
+    /// Layout page index; unused by current archives.
     pub layout_page: u32,
+    /// Offset of the trailing MD5, which cairn does not verify.
     pub checksum_pos: u64,
 }
 

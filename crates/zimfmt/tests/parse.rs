@@ -1,5 +1,10 @@
 //! Round-trip and hostile-archive tests over crafted archives.
 
+// a panic in a test is the failure report.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+// Fixture offsets are the test's own, and small.
+#![allow(clippy::cast_possible_truncation)]
+
 use testutil::{Builder, Compression};
 use zimfmt::{Error, Layout, Target, Zim};
 
@@ -12,7 +17,7 @@ fn open(bytes: &[u8]) -> (Layout, ()) {
 #[test]
 fn reads_a_sample_archive() {
     let bytes = testutil::sample().build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
 
     assert_eq!(zim.entry_count(), 8); // seven entries plus the title listing
@@ -36,7 +41,7 @@ fn reads_a_sample_archive() {
 #[test]
 fn follows_a_redirect() {
     let bytes = testutil::sample().build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     let from = zim.find(b'C', b"home.html").unwrap().unwrap();
     let to = zim.resolve(from).unwrap();
@@ -48,7 +53,7 @@ fn self_referential_redirect_stops() {
     let mut bytes = Builder::new()
         .redirect("loop.html", "Loop", "loop.html")
         .build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     let i = zim.find(b'C', b"loop.html").unwrap().unwrap();
     assert_eq!(zim.resolve(i), Err(Error::RedirectDepth));
@@ -62,7 +67,7 @@ fn long_redirect_chain_is_abandoned() {
         b = b.redirect(&format!("r{i}.html"), "R", &format!("r{}.html", i + 1));
     }
     let bytes = b.content("r10.html", "End", 0, b"end").build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     let i = zim.find(b'C', b"r0.html").unwrap().unwrap();
     assert_eq!(zim.resolve(i), Err(Error::RedirectDepth));
@@ -73,7 +78,7 @@ fn every_compression_round_trips() {
     for c in [Compression::None, Compression::Xz, Compression::Zstd] {
         for extended in [false, true] {
             let bytes = testutil::sample().compression(c).extended(extended).build();
-            let (layout, _) = open(&bytes);
+            let (layout, ()) = open(&bytes);
             let zim = Zim::new(&bytes, &layout);
             let i = zim.find(b'C', b"notes.txt").unwrap().unwrap();
             let Target::Content { cluster, blob } = zim.dirent(i).unwrap().target else {
@@ -96,7 +101,7 @@ fn decompression_bound_is_enforced() {
         .compression(Compression::Zstd)
         .content("big.txt", "Big", 0, &big)
         .build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     assert_eq!(zim.cluster(0, 4096), Err(Error::TooLarge { limit: 4096 }));
     assert!(zim.cluster(0, 1 << 20).is_ok());
@@ -109,7 +114,7 @@ fn legacy_namespaces() {
         .content("index.html", "Main", 0, b"legacy")
         .content_in(b'I', "logo.png", "Logo", 0, b"png")
         .build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     assert_eq!(zim.header().content_namespace(), b'A');
     assert!(zim.find(b'A', b"index.html").unwrap().is_some());
@@ -123,7 +128,7 @@ fn title_order_supports_prefix_search() {
         .content("b.html", "Apricot", 0, b"b")
         .content("c.html", "Banana", 0, b"c")
         .build();
-    let (layout, _) = open(&bytes);
+    let (layout, ()) = open(&bytes);
     let zim = Zim::new(&bytes, &layout);
     let index = zim.title_index().unwrap().expect("a title ordering");
     let start = zim.title_lower_bound(&index, b'C', b"Ap").unwrap();

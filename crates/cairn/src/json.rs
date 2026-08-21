@@ -124,7 +124,7 @@ struct Parser<'a> {
     depth: usize,
 }
 
-impl<'a> Parser<'a> {
+impl Parser<'_> {
     fn space(&mut self) {
         self.rest = self.rest.trim_start_matches([' ', '\t', '\n', '\r']);
     }

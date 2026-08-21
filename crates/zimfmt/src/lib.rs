@@ -7,10 +7,13 @@
 #![forbid(unsafe_code)]
 
 mod bytes;
+/// Cluster bodies and the blobs inside them.
 pub mod cluster;
 pub mod decompress;
+/// Directory entries: content targets and redirects.
 pub mod dirent;
 mod error;
+/// The fixed-size archive header.
 pub mod header;
 mod layout;
 mod uuid;

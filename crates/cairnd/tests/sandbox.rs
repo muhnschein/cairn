@@ -3,6 +3,12 @@
 //! A missing entry in the seccomp allowlist kills the daemon with SIGSYS, so
 //! these tests fail loudly rather than quietly serving unconfined.
 
+// a panic in a test is the failure report.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+// SCOPE §7.1 says no process is spawned; clippy.toml enforces it. Here
+// the daemon under test is a process.
+#![allow(clippy::disallowed_methods)]
+
 mod common;
 
 use common::{Daemon, SAMPLE_UUID};

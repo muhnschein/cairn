@@ -1,14 +1,15 @@
 # Decisions
 
-Documented, reversible defaults. Each entry says what was decided, what it
-costs, and what would reopen it. Revisiting one is a normal PR, with evidence;
-the burden of proof is on the change.
+The open questions from §8 of [the scope](SCOPE.md), resolved, plus what has
+been decided since. Each entry says what was decided, what it costs, and what
+would reopen it. Revisiting one is a normal PR, with evidence; the burden of
+proof is on the change.
 
 ## D1 — Decompressors: pure Rust
 
 `ruzstd` for Zstandard, `lzma-rs` for LZMA2/xz. No C bindings. The parser is
-ours because it touches attacker-controlled bytes; handing those same bytes to
-a C decompressor puts C back on that path.
+ours because it touches attacker-controlled bytes (§3.6); handing those same
+bytes to a C decompressor puts C back on that path.
 
 **Cost:** both are slower than `zstd`/`xz2` and far less exercised. On large
 archives this is the throughput ceiling, and the cluster cache exists partly to
@@ -67,7 +68,8 @@ budget would make memory scale with the number of archives.
   size — tens, not thousands — so an intrusive list is not worth it.
 
 The cache is why a client asking repeatedly for a tiny entry in a large cluster
-pays for one decode; `request_rate` bounds how fast it can force new ones.
+pays for one decode; `request_rate` bounds how fast it can force new ones
+(§7.2).
 
 ## D5 — Suggestions: byte-exact title prefix
 
@@ -77,8 +79,7 @@ diacritic folding, no normalization.
 
 The title list is sorted by the stored title's bytes, so any folding makes the
 sort order and the query order disagree; a correct case-insensitive answer
-needs a second index (cairn builds none) or a scan (which the amplification
-bound forbids).
+needs a second index (cairn builds none) or a scan (which §7.2 forbids).
 
 **Cost:** `q=rhino` does not match `Rhinoceros`. For a human typing into a
 search box this is close to useless, and clients wanting that must build their
@@ -144,8 +145,8 @@ no archive present; large real archives stay optional.
 
 This keeps the repository text, keeps the corpus regenerable, and makes a new
 hostile case a few lines of builder rather than a hex editor. `testutil` is
-never a dependency of `cairnd` or `cairn`: writing ZIM files is a non-goal, and
-the builder exists only so the parser has something to refuse.
+never a dependency of `cairnd` or `cairn`: writing ZIM files is a non-goal
+(§4), and the builder exists only so the parser has something to refuse.
 
 The builder emits the modern title-index layout by default (D12), with
 `legacy_title_index()` for the pre-6.1 one. Both are covered — a corpus
@@ -238,7 +239,8 @@ values — has control characters and the bidirectional overrides replaced with
 newlines and tabs; content that is not text is refused there rather than left
 to wedge the terminal.
 
-A terminal is an interpreter and an archive is hostile input: `"\x1b[2J"`
+A terminal is an interpreter and an archive is hostile input (§7.1):
+`"\x1b[2J"`
 clears the reader's screen, `"\x1b]0;…\x07"` retitles their window, and a bare
 newline forges a table row. That is not a parser bug — `zimfmt` has no opinion
 about `ESC` because `ESC` is not a format problem.
@@ -270,8 +272,8 @@ fail. What changes is that a library asking the filesystem an advisory question
 gets an answer it already handles. Killing is right for a syscall that is
 evidence; `openat` from glibc's malloc is housekeeping.
 
-**Rejected:** adding `openat` to the allowlist (it is the one thing the
-confinement rests on); pre-warming the allocator before confining (glibc
+**Rejected:** adding `openat` to the allowlist (it is the one thing §7.1 rests
+on); pre-warming the allocator before confining (glibc
 creates a secondary arena on *contention*, so forcing it at startup would make
 the fix probabilistic); `mallopt(M_ARENA_MAX)` (measured — it does not stop the
 `overcommit_memory` read, which is on the heap-growth path); a different

@@ -86,7 +86,7 @@ impl Router {
         // Authentication is checked before routing, so an unauthenticated
         // client cannot tell a missing archive from a forbidden one.
         if let Some(expected) = &self.policy.auth_token
-            && !self.authenticated(req, expected)
+            && !Self::authenticated(req, expected)
         {
             return Fault::Unauthorized.response();
         }
@@ -123,7 +123,7 @@ impl Router {
         }
     }
 
-    fn authenticated(&self, req: &Request, expected: &str) -> bool {
+    fn authenticated(req: &Request, expected: &str) -> bool {
         let Some(value) = req.header("authorization") else {
             return false;
         };
@@ -310,8 +310,7 @@ impl Router {
         let len = entry.body.len() as u64;
         let requested = req
             .header("range")
-            .map(|v| range::parse(v, len))
-            .unwrap_or(Range::Whole);
+            .map_or(Range::Whole, |v| range::parse(v, len));
         let mut response = match requested {
             Range::Unsatisfiable => Fault::RangeNotSatisfiable
                 .response()
@@ -409,11 +408,11 @@ pub fn is_canonical_uuid(s: &str) -> bool {
 /// Compare without an early exit. Length mismatch is reported, not timed.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     let mut diff = u8::from(a.len() != b.len());
-    let n = a.len().max(b.len());
-    for i in 0..n {
-        let x = a.get(i).copied().unwrap_or(0);
-        let y = b.get(i).copied().unwrap_or(0);
-        diff |= x ^ y;
+    let width = a.len().max(b.len());
+    for i in 0..width {
+        let left = a.get(i).copied().unwrap_or(0);
+        let right = b.get(i).copied().unwrap_or(0);
+        diff |= left ^ right;
     }
     diff == 0
 }

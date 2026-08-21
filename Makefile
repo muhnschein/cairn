@@ -10,7 +10,7 @@ USERUNITDIR ?= $(PREFIX)/lib/systemd/user
 DESTDIR ?=
 FUZZ_TIME ?= 60
 
-.PHONY: all build test smoke chaos sandbox lint fmt man-lint doc-lint fuzz deps check install uninstall clean
+.PHONY: all build test smoke chaos sandbox lint fmt man-lint doc-lint fuzz fuzz-seed deny deps check install uninstall clean
 
 all: build
 
@@ -50,7 +50,8 @@ doc-lint:
 	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps
 
 # Both fuzz targets, seeded from the committed corpus. Needs a nightly
-# toolchain and cargo-fuzz.
+# toolchain and cargo-fuzz. The corpus directory is kept: the nightly job
+# restores it from the last run so coverage accumulates instead of restarting.
 fuzz:
 	mkdir -p fuzz/corpus/archive fuzz/corpus/request
 	cp -n fuzz/seeds/archive/* fuzz/corpus/archive/ 2>/dev/null || true
@@ -58,12 +59,24 @@ fuzz:
 	cd fuzz && $(CARGO) +nightly fuzz run archive -- -max_total_time=$(FUZZ_TIME)
 	cd fuzz && $(CARGO) +nightly fuzz run request -- -max_total_time=$(FUZZ_TIME)
 
+# Minimise the corpus and fold what it found into the committed seeds.
+fuzz-seed:
+	ci/fuzz-seed.sh
+
 # Dependency allowlist, licenses, and the crate boundaries from the scope.
 deps:
 	ci/check-deps.sh
 	ci/check-boundaries.sh
 
-check: fmt lint test deps man-lint doc-lint
+# Advisories, licences, banned crates and unknown sources. Needs cargo-deny.
+deny:
+	@if command -v cargo-deny >/dev/null 2>&1; then \
+		$(CARGO) deny --all-features check; \
+	else \
+		echo "deny: cargo-deny not installed, skipping"; \
+	fi
+
+check: fmt lint test deps deny man-lint doc-lint
 
 install: build
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)/man1 $(DESTDIR)$(MANDIR)/man5 \

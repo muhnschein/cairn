@@ -1,5 +1,8 @@
 //! Router behaviour against a stub catalog. No archive, no socket.
 
+// a panic in a test is the failure report.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use std::sync::Arc;
 
 use api::{
@@ -136,7 +139,7 @@ fn get(r: &Router, target: &str) -> Response {
 fn request(r: &Router, method: &str, target: &str, headers: &[(&str, &str)]) -> Response {
     let mut raw = format!("{method} {target} HTTP/1.1\r\nHost: cairn\r\n");
     for (k, v) in headers {
-        raw.push_str(&format!("{k}: {v}\r\n"));
+        let _ = std::fmt::Write::write_fmt(&mut raw, format_args!("{k}: {v}\r\n"));
     }
     raw.push_str("\r\n");
     let (req, _) = Request::parse(raw.as_bytes(), &Limits::default()).expect("parse");

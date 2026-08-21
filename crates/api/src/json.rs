@@ -1,6 +1,8 @@
 //! A JSON writer sized to what this API emits: objects, arrays, strings,
 //! numbers, booleans.
 
+use std::fmt::Write;
+
 /// Builds a JSON document.
 #[derive(Debug, Default)]
 pub struct Json {
@@ -130,7 +132,7 @@ fn escape_into(out: &mut String, s: &str) {
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if (c as u32) < 0x20 || c == '\u{7f}' => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+                let _ = write!(out, "\\u{:04x}", c as u32);
             }
             c => out.push(c),
         }
@@ -165,5 +167,57 @@ mod tests {
         let mut j = Json::new();
         j.string("a\"b\\c\nd\u{1}e");
         assert_eq!(j.into_string(), "\"a\\\"b\\\\c\\nd\\u0001e\"");
+    }
+
+    /// Archive titles and MIME types reach this writer, so a byte that escapes
+    /// it lands in a document a client parses. D14 leans on that: `cairn`
+    /// scrubs for the terminal, and `--json` consumers rely on this instead.
+    #[test]
+    fn no_control_byte_survives_a_string() {
+        for c in (0u32..0x20).chain(std::iter::once(0x7f)) {
+            let raw = format!("a{}b", char::from_u32(c).unwrap());
+            let mut j = Json::new();
+            j.string(&raw);
+            let out = j.into_string();
+            assert!(
+                !out.chars()
+                    .any(|ch| (ch as u32) < 0x20 || ch as u32 == 0x7f),
+                "U+{c:04X} survived as {out:?}"
+            );
+            assert!(out.starts_with('"') && out.ends_with('"'), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn a_key_is_escaped_like_a_value() {
+        // Metadata names come from the archive too, and they become keys.
+        let mut j = Json::new();
+        j.begin_object();
+        j.field("a\"b", "v");
+        j.end_object();
+        assert_eq!(j.into_string(), r#"{"a\"b":"v"}"#);
+    }
+
+    #[test]
+    fn text_above_ascii_is_passed_through() {
+        // The output is UTF-8; escaping non-ASCII would only make it longer.
+        let mut j = Json::new();
+        j.string("Ångström — café 日本語");
+        assert_eq!(j.into_string(), "\"Ångström — café 日本語\"");
+    }
+
+    #[test]
+    fn an_empty_document_and_empty_containers_are_still_valid() {
+        assert_eq!(Json::new().into_string(), "");
+        let mut j = Json::new();
+        j.begin_object().end_object();
+        assert_eq!(j.into_string(), "{}");
+        let mut j = Json::new();
+        j.begin_array().end_array();
+        assert_eq!(j.into_string(), "[]");
+        let mut j = Json::new();
+        j.begin_object().key("empty").begin_array().end_array();
+        j.end_object();
+        assert_eq!(j.into_string(), r#"{"empty":[]}"#);
     }
 }

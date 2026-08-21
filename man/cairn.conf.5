@@ -1,4 +1,4 @@
-.Dd August 20, 2026
+.Dd August 21, 2026
 .Dt CAIRN.CONF 5
 .Os
 .Sh NAME
@@ -36,7 +36,8 @@ or
 .It Ic listen No = Ar unix:PATH | tcp:ADDR
 Default
 .Ql unix:/run/cairn/cairn.sock .
-A TCP address must be loopback; anything else is refused at startup.
+A TCP address must be an IP address and port, and must be loopback; a hostname
+is refused rather than resolved, and anything off-host is refused at startup.
 TLS is the reverse proxy's job.
 .It Ic socket_mode No = Ar OCTAL
 Mode of the unix socket, applied after binding.

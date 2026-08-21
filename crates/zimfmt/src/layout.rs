@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn mime_table_is_capped() {
         let mut buf = Vec::new();
-        for _ in 0..MAX_MIME_ENTRIES + 1 {
+        for _ in 0..=MAX_MIME_ENTRIES {
             buf.extend_from_slice(b"a\0");
         }
         buf.push(0);
