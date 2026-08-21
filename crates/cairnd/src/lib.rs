@@ -10,5 +10,6 @@ pub mod listener;
 pub mod log;
 pub mod server;
 
-/// Version reported by `--version` and `/v1/status`.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Release name reported by `--version` and `/v1/status`, defined once in
+/// `api` so the daemon and its answers cannot disagree.
+pub use api::VERSION;

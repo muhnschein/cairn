@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "api"
-version = "0.1.0"
+version = "2026.8.0"
 
 [[package]]
 name = "archive"
-version = "0.1.0"
+version = "2026.8.0"
 dependencies = [
  "memmap2",
  "testutil",
@@ -23,11 +23,11 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cairn"
-version = "0.1.0"
+version = "2026.8.0"
 
 [[package]]
 name = "cairnd"
-version = "0.1.0"
+version = "2026.8.0"
 dependencies = [
  "api",
  "archive",
@@ -84,14 +84,14 @@ checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
 
 [[package]]
 name = "sandbox"
-version = "0.1.0"
+version = "2026.8.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "testutil"
-version = "0.1.0"
+version = "2026.8.0"
 dependencies = [
  "lzma-rs",
  "ruzstd",
@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "zimfmt"
-version = "0.1.0"
+version = "2026.8.0"
 dependencies = [
  "lzma-rs",
  "ruzstd",

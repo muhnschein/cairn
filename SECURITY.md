@@ -102,7 +102,7 @@ it turns a partially applied sandbox into a refusal to start.
 ## Guarantees this project makes about itself
 
 - No component can open an outbound socket. `ci/check-boundaries.sh` fails if a
-  crate crosses a boundary from §5 of the scope.
+  crate crosses a boundary.
 - No component writes to the archive directory. There is no upload endpoint, no
   archive management, and no mutation anywhere in the API surface.
 - No process is spawned, and no DNS lookup is made.

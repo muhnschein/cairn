@@ -1,383 +1,282 @@
 # Decisions
 
-The open questions from §8 of the scope, resolved. Each records what was
-decided, what it costs, and what would reopen it. A decision is not a
-justification: where the choice is uncomfortable, the entry says so.
+Documented, reversible defaults. Each entry says what was decided, what it
+costs, and what would reopen it. Revisiting one is a normal PR, with evidence;
+the burden of proof is on the change.
 
----
+## D1 — Decompressors: pure Rust
 
-## D1 — Decompressor crates: pure Rust
+`ruzstd` for Zstandard, `lzma-rs` for LZMA2/xz. No C bindings. The parser is
+ours because it touches attacker-controlled bytes; handing those same bytes to
+a C decompressor puts C back on that path.
 
-**Decided:** `ruzstd` for Zstandard, `lzma-rs` for LZMA2/xz. No C bindings.
+**Cost:** both are slower than `zstd`/`xz2` and far less exercised. On large
+archives this is the throughput ceiling, and the cluster cache exists partly to
+hide it.
 
-The parser is ours precisely because it touches attacker-controlled bytes
-(§3.6). Handing those same bytes to a C decompressor puts C back on exactly the
-path that argument was made about. `ruzstd` and `lzma-rs` are pure Rust, keep
-the memory-safety story whole, and keep the tree auditable: seven crates, all
-readable.
-
-**Cost, stated plainly:** both are slower than `zstd`/`xz2`, and far less
-battle-tested. On large archives this is the throughput ceiling, and the cluster
-cache exists partly to hide it.
-
-**What reopens it:** a benchmark against a real Wikipedia archive showing the
-pure-Rust decoders are the bottleneck for a real deployment. If they are, the
-answer is still not C in-process by default; it is a measured argument recorded
-here, with the C decoder behind a build flag that CI does not enable.
-
----
+**Reopens it:** a benchmark against a real archive showing they are the
+bottleneck. The answer would still not be C in-process by default, but a C
+decoder behind a build flag CI does not enable.
 
 ## D2 — Namespaces: flat path space, resolved internally
 
-**Decided:** the API has no namespace segment. `{path}` is resolved in two
-probes:
+The API has no namespace segment. `{path}` is resolved in two probes: the
+archive's content namespace (`C`, or `A` in older archives), then — if the path
+looks like `N/rest` — namespace `N` with that remainder.
 
-1. the archive's content namespace (`C` in archives using the modern scheme,
-   `A` in older ones);
-2. failing that, if the path looks like `N/rest` where `N` is a single
-   namespace character, that namespace with that remainder.
-
-**Why this order:** an entry genuinely named `A/foo` in the content namespace
-must win over namespace `A` entry `foo`. Cross-namespace links in older
-archives (`../I/logo.png`) still resolve, because they arrive as `I/logo.png`
-after the client resolves the relative reference.
+That order lets an entry genuinely named `A/foo` in the content namespace win
+over namespace `A` entry `foo`. Cross-namespace links in older archives
+(`../I/logo.png`) still resolve, arriving as `I/logo.png`.
 
 **Cost:** an entry in namespace `I` named `logo.png` is shadowed by a content
-entry literally named `I/logo.png`. Rare, deterministic, and documented in
+entry literally named `I/logo.png`. Rare, deterministic, documented in
 `cairn-api(7)`.
 
-**Rejected:** exposing namespaces as a path segment. It leaks a format detail
-into the interface for the benefit of archives that are being phased out, and
-every client would have to learn it.
+**Rejected:** namespaces as a path segment. It leaks a format detail into the
+interface for archives that are being phased out, and every client would have
+to learn it.
 
----
+## D3 — Auth failure is indistinguishable
 
-## D3 — Auth failure is indistinguishable, by construction
+When `auth_token` is set, authentication is checked **before routing**. Every
+request without a valid token gets `401`, whatever it asked for. An
+unauthenticated client cannot tell a missing archive from a present one, a
+valid uuid from a malformed one, or a real route from a typo.
 
-**Decided:** when `auth_token` is set, authentication is checked **before
-routing**. Every request without a valid token gets `401`, whatever it asked
-for. An unauthenticated client cannot tell a missing archive from a present
-one, a valid uuid from a malformed one, or a real route from a typo.
-
-**Cost:** a client debugging its own request gets no help until it authenticates
-correctly. Acceptable: the API is for programs, and the daemon's own log says
-what happened.
-
-**Related:** for *authenticated* requests, a missing archive and a missing entry
-are both `not_found`. The difference tells a client nothing it can act on, and
+For authenticated requests, a missing archive and a missing entry are both
+`not_found`: the difference tells a client nothing it can act on, and
 collapsing it removes a probe for which archives exist.
 
----
+**Cost:** a client debugging its own request gets no help until it
+authenticates. The API is for programs, and the daemon's log says what
+happened.
 
 ## D4 — Cluster cache: one global budget, LRU
 
-**Decided:** a single cache shared by every archive, keyed by (archive,
-cluster), bounded by total decompressed bytes (`cluster_cache_bytes`, default
-64M), evicting least-recently-used.
+One cache shared by every archive, keyed by (archive, cluster), bounded by
+total decompressed bytes (`cluster_cache_bytes`, default 64M). A per-archive
+budget would make memory scale with the number of archives.
 
-**Why global:** a per-archive budget makes memory scale with the number of
-archives, which is exactly what an appliance with forty archives cannot afford.
+- Uncompressed clusters never enter it; they are served from the mapping.
+- A body larger than the whole budget is returned uncached rather than emptying
+  the cache for one entry.
+- Decoding happens **outside** the cache lock. Two workers racing on a cold
+  cluster may decode it twice; holding the lock across decompression would
+  serialize the pool.
+- Eviction scans for the oldest slot. Slots are bounded by budget ÷ cluster
+  size — tens, not thousands — so an intrusive list is not worth it.
 
-**Details that matter:**
-
-- Uncompressed clusters never enter the cache. They are served straight from
-  the mapping, so caching them would copy bytes the kernel already has.
-- A decoded body larger than the whole budget is returned uncached rather than
-  emptying the cache for one entry.
-- Decoding happens **outside** the cache lock. Two workers racing on the same
-  cold cluster may decode it twice; a lock held across decompression would
-  serialize every worker in the pool. Duplicated work is the cheaper mistake.
-- Eviction scans for the oldest slot. The slot count is bounded by
-  budget ÷ cluster size — tens, not thousands — so the scan is not worth an
-  intrusive list.
-
-**Interaction with amplification (§7.2):** the cache is the reason a client
-asking repeatedly for a tiny entry in a large cluster pays for one decode, and
-`request_rate` is the ceiling on how fast it can try to force new ones.
-
----
+The cache is why a client asking repeatedly for a tiny entry in a large cluster
+pays for one decode; `request_rate` bounds how fast it can force new ones.
 
 ## D5 — Suggestions: byte-exact title prefix
 
-**Decided:** `/suggest` binary-searches the archive's title pointer list and
-returns entries whose stored title starts with `q`, byte for byte. No case
-folding, no diacritic folding, no normalization.
+`/suggest` binary-searches the archive's title pointer list and returns entries
+whose stored title starts with `q`, byte for byte. No case folding, no
+diacritic folding, no normalization.
 
-**Cost, stated plainly:** `q=rhino` does not match `Rhinoceros`. For a human
-typing into a search box this is close to useless, and clients that want that
-behaviour must build their own index.
+The title list is sorted by the stored title's bytes, so any folding makes the
+sort order and the query order disagree; a correct case-insensitive answer
+needs a second index (cairn builds none) or a scan (which the amplification
+bound forbids).
 
-**Why anyway:** the title list is sorted by the stored title's bytes. Any
-folding makes the sort order and the query order disagree, so a correct
-case-insensitive answer needs either a second index (which cairn does not
-build) or a scan (which §7.2 forbids). Plain prefix is honest about what the
-archive actually offers.
+**Cost:** `q=rhino` does not match `Rhinoceros`. For a human typing into a
+search box this is close to useless, and clients wanting that must build their
+own index.
 
-**What reopens it:** the same thing that reopens full-text search — a sidecar
-index. Then folding belongs there, not here.
-
----
+**Reopens it:** the same thing that reopens full-text search — a sidecar index.
+Folding belongs there, not here.
 
 ## D6 — HTTP/1.1 only, hand-rolled
 
-**Decided:** the request parser is written here, HTTP/1.1 only, no HTTP/2, no
-HTTP crate.
+No HTTP/2, no HTTP crate. HTTP/2 means an HPACK state machine and stream
+priority logic — a large parser surface facing a hostile client, for no benefit
+to a local API. The HTTP/1.1 parser is a few hundred lines with a fuzz target
+pointed at it. `HTTP/1.0` is refused with `505` rather than half-supported.
 
-HTTP/2 means an HPACK state machine and stream priority logic — a large parser
-surface facing a hostile client, for no benefit to a local API. The HTTP/1.1
-parser is a few hundred lines with a fuzz target pointed at it, and every bound
-is explicit. `HTTP/1.0` is refused with `505` rather than half-supported.
-
-**Cost:** no multiplexing, and one connection per concurrent request. The
-worker pool is sized for that.
-
----
+**Cost:** no multiplexing, one connection per concurrent request. The worker
+pool is sized for that.
 
 ## D7 — Fixed worker pool, created before confinement
 
-**Decided:** `max_connections` threads are created at startup, park at a gate,
-and are released only after the sandbox is applied. No thread is created after
-confinement.
+`max_connections` threads are created at startup, park at a gate, and are
+released only after the sandbox is applied. No thread is created after
+confinement. This is what keeps `clone` off the seccomp allowlist, and it makes
+the connection ceiling a property of the process rather than a counter that has
+to be right. Connections beyond the pool wait in the kernel's accept queue.
 
-This is what keeps `clone` off the seccomp allowlist, and it makes the
-connection ceiling a property of the process rather than a counter that has to
-be right. Connections beyond the pool wait in the kernel's accept queue.
-
-**A race this exposed:** confinement landing while a worker is still starting
-up kills the process, because thread startup makes syscalls (`prctl` to set the
-thread name) that the serving loop never makes. Workers therefore report
-readiness *after* they finish starting, and confinement waits for all of them.
-Found by `make sandbox`, which is the point of having it.
-
----
+Thread startup makes syscalls the serving loop never makes (`prctl` to set the
+thread name), so confinement landing mid-startup kills the process. Workers
+therefore report readiness *after* they finish starting, and confinement waits
+for all of them.
 
 ## D8 — mmap, and what happens when the file changes
 
-**Decided:** archives are mapped, not read through `pread64`, and the daemon
-does not try to catch `SIGBUS`.
+Archives are mapped, not read through `pread64`, and the daemon does not try to
+catch `SIGBUS`.
 
-**What actually happens** when an archive is truncated under a running daemon:
-a *load* from a lost page faults with `SIGBUS` and the process dies; a *write*
-whose source pages were lost fails with `EFAULT` instead, so the transfer is cut
-short and the daemon survives. Both are covered by `make chaos`. Neither
-produces a complete answer with wrong bytes, which is the property that
-matters.
+When an archive is truncated under a running daemon, a *load* from a lost page
+faults with `SIGBUS` and the process dies; a *write* whose source pages were
+lost fails with `EFAULT`, so the transfer is cut short and the daemon survives.
+Both are covered by `make chaos`. Neither produces a complete answer with wrong
+bytes, which is the property that matters.
 
 **Consequence:** archives are immutable once opened, the archive directory
 should be a read-only mount, and replacing an archive means restarting. The
-units set `Restart=on-failure`. This is an availability property; whoever can
-truncate the file already has write access to the data directory and is outside
-the threat model.
-
----
+units set `Restart=on-failure`. Whoever can truncate the file already has write
+access to the data directory and is outside the threat model.
 
 ## D9 — No `Date`, no `Server`, no `ETag`
 
-**Decided:** responses carry no `Date` header (it would need a clock and a
-formatter for no local benefit), no `Server` header (nothing to advertise), and
-no `ETag`. Archives are immutable once opened, so a client that wants caching
-can key on the archive uuid and the resolved path from `X-Cairn-Path`.
+`Date` would need a clock and a formatter for no local benefit; there is
+nothing to advertise in `Server`. Archives are immutable once opened, so a
+client wanting caching can key on the archive uuid and the resolved path from
+`X-Cairn-Path`.
 
-**What reopens it:** a concrete client that needs conditional requests. `ETag`
-would be cheap — the uuid plus the entry index — but nothing asks for it yet.
-
----
+**Reopens it:** a concrete client that needs conditional requests. `ETag` would
+be cheap — the uuid plus the entry index — but nothing asks for it.
 
 ## D10 — Test archives are built by committed code
 
-**Decided:** `crates/testutil` crafts ZIM archives programmatically, and the
-fuzz seed corpus in `fuzz/seeds/` is generated from it by `zim-craft`. Routine
-tests need no archive present; large real archives stay optional.
+`crates/testutil` crafts ZIM archives programmatically, and the fuzz seed
+corpus in `fuzz/seeds/` is generated from it by `zim-craft`. Routine tests need
+no archive present; large real archives stay optional.
 
 This keeps the repository text, keeps the corpus regenerable, and makes a new
 hostile case a few lines of builder rather than a hex editor. `testutil` is
-never a dependency of `cairnd` or `cairn` — writing ZIM files is a non-goal
-(§4), and the builder exists only so the parser has something to refuse.
+never a dependency of `cairnd` or `cairn`: writing ZIM files is a non-goal, and
+the builder exists only so the parser has something to refuse.
 
----
+The builder emits the modern title-index layout by default (D12), with
+`legacy_title_index()` for the pre-6.1 one. Both are covered — a corpus
+containing only what the parser already handles proves nothing.
 
 ## D11 — A third-party decoder may panic; the parser contains it
 
-**Found by fuzz target A, within a minute of its first CI run:** `lzma-rs`
-panics with an arithmetic overflow on an xz footer claiming a backward size of
-`u32::MAX` (`decode/xz.rs:52`). A crafted archive reaches it through
-`zimfmt::decompress`.
+`lzma-rs` panics with an arithmetic overflow on an xz footer claiming a
+backward size of `u32::MAX` (`decode/xz.rs:52`), reachable from a crafted
+archive through `zimfmt::decompress`.
 
-**Decided:** `zimfmt::decompress` catches the unwind and reports
-`Error::Decompress("decoder panicked")`. `zimfmt` promises its callers a
+`zimfmt::decompress` catches the unwind and reports
+`Error::Decompress("decoder panicked")`: `zimfmt` promises its callers a
 `Result` for every input, and that promise cannot depend on a dependency never
-panicking.
+panicking. Second layer: a worker catches a panic from anywhere in the serving
+path and loses the connection, not the thread — workers cannot be replaced
+after confinement (D7), so a panic that killed one would shrink the pool
+permanently.
 
-**Second layer:** a worker catches a panic from anywhere in the serving path
-and loses the connection, not the thread. Workers cannot be replaced after
-confinement (D7), so a panic that killed one would shrink the pool
-permanently — a denial of service from a single crafted archive.
+**Cost:** a panicking decoder leaks whatever it allocated and prints through
+the default hook. That is noise, but it is the only signal that a dependency
+mishandled an input, so the hook stays.
 
-**Cost:** a panicking decoder leaves whatever it allocated to be dropped, and
-prints its message to stderr through the default hook. That is noise, but it
-is also the only signal that a dependency mishandled an input, so the hook
-stays.
+**Under the fuzzer:** `libfuzzer-sys` installs a hook that calls `abort()`
+before unwinding, so a contained panic would still stop the run.
+`zimfmt::decompress` silences that hook for the duration of the decoder call,
+only under `cfg(fuzzing)`. A panic anywhere else still aborts and is still
+reported. The interaction has its own test.
 
-**The harness makes this awkward, and that is handled explicitly.**
-`libfuzzer-sys` installs a panic hook that calls `abort()` *before* unwinding,
-deliberately, so the fuzzer can report an intact stack. That hook runs before
-`catch_unwind` ever gets a chance, so under the fuzzer a contained panic still
-killed the run — the fuzz job stopped at this one defect instead of exploring
-past it. `zimfmt::decompress` therefore silences the hook for the duration of
-the decoder call, and only under `cfg(fuzzing)`, which cargo-fuzz sets for the
-whole build. In a real daemon the default hook stays installed and the panic
-message is printed before the unwind is caught; under the fuzzer, a panic
-anywhere outside that one call still aborts and is still reported. The
-interaction has its own test, which aborts if the mechanism is removed.
-
-**Not done:** upstream still panics. The regression is pinned here by a unit
-test and by `fuzz/seeds/archive/xz-crash.zim` in the seed corpus, so a
-dependency bump that fixes or reintroduces it is visible.
-
----
+Upstream still panics. A unit test and `fuzz/seeds/archive/xz-crash.zim` pin
+the regression, so a dependency bump that fixes or reintroduces it is
+visible.
 
 ## D12 — The title ordering lives in an entry, not the header
 
-**The bug this records:** cairn refused every archive Kiwix publishes, with
-"title pointer list does not fit in the file". Not an edge case — every one.
+The header field at offset 40 was historically a position, but current libzim
+writes `setTitleIdxPos(offset_type(-1))` — a **sentinel** meaning "there is no
+title index here". Treating it as a position overflows the region check and
+rejects every archive Kiwix publishes. The real ordering is the entry
+`X/listing/titleOrdered/v1`, whose blob libzim deliberately writes into an
+*uncompressed* cluster so a reader can address it directly.
 
-The header field at offset 40 has been a position historically, and the parser
-treated it as one. Current libzim writes `setTitleIdxPos(offset_type(-1))`: a
-**sentinel** meaning "there is no title index here". Adding `4 × entry_count`
-to `u64::MAX` overflows, and the region check fired. The real ordering is the
-entry `X/listing/titleOrdered/v1`, whose blob libzim deliberately writes into
-an *uncompressed* cluster so a reader can address it directly.
+Resolve it the way libzim does, once at open:
 
-**Decided:** resolve the ordering the way libzim resolves it, once at open:
-
-1. the entry `X/listing/titleOrdered/v1` if present and its cluster is
-   uncompressed — front articles only, so it is usually shorter than the entry
-   count;
+1. `X/listing/titleOrdered/v1` if present and its cluster is uncompressed —
+   front articles only, so usually shorter than the entry count;
 2. otherwise the header's list, when the field is not the sentinel;
 3. otherwise none, and `/suggest` says so.
 
-Both cases reduce to the same thing — an array of little-endian `u32` entry
-indices resident in the mapped file — so `TitleIndex` names a position and a
-count and the search code does not care which one it got.
+Both cases reduce to an array of little-endian `u32` entry indices resident in
+the mapped file, so `TitleIndex` names a position and a count and the search
+code does not care which it got.
 
-**Why the tests did not catch it:** `testutil` only ever emitted the pre-6.1
-layout, so 145 passing tests all agreed with each other about a shape no real
-archive has had for years. The builder now emits the modern layout **by
-default**, with `legacy_title_index()` for the old one, and both are covered.
-A test corpus that only contains what the parser already handles is a test
-corpus that proves nothing.
+An archive with no ordering would otherwise make `/suggest` return an empty
+list forever with no way to tell why, so `/v1/archives` carries
+`"suggest": true|false` per archive.
 
-**Surfaced, not silent:** an archive with no ordering would otherwise make
-`/suggest` return an empty list forever with no way to tell why. `/v1/archives`
-now carries `"suggest": true|false` per archive.
-
-**Also mirrored from upstream:** a header whose MIME table starts at 72 predates
+Also mirrored from upstream: a header whose MIME table starts at 72 predates
 the checksum field, so those bytes are table content rather than a position.
-
----
 
 ## D13 — The CLI reports; `--json` is the interface
 
-**Decided:** `cairn` renders the daemon's answers for a person by default and
-prints the JSON unchanged under `--json`, matching `clove(1)`. The reports are
-not an interface and are not versioned; `--json` is, and it is the daemon's own
-answer with nothing added, so a script never depends on this end.
+`cairn` renders the daemon's answers for a person by default and prints the
+JSON unchanged under `--json`, matching `clove(1)`. The reports are not an
+interface and are not versioned; `--json` is, and it is the daemon's own answer
+with nothing added. `get` and `head` are unaffected in both modes: entry
+content is not JSON and is never reformatted.
 
-`get` and `head` are unaffected in both modes: entry content is not JSON and is
-never reformatted.
+Two things the reports do that the JSON cannot:
 
-**Cost:** two output paths for five commands, and a JSON reader in a crate whose
-manifest says it has no dependencies. The reader is small, is only ever pointed
-at the local daemon, and is bounded anyway.
-
-**Two things the reports do that the JSON cannot:**
-
-- `random` prints the path alone, so `cairn get "$uuid" "$(cairn random "$uuid")"`
-  works without `jq`.
-- an empty `suggest` result asks `/v1/archives/{uuid}` whether that archive has a
-  title ordering at all (D12) and says which kind of empty it is. A daemon that
-  will not answer counts as "it has one", so a failed second request never
+- `random` prints the path alone, so `cairn get "$uuid" "$(cairn random
+  "$uuid")"` works without `jq`.
+- an empty `suggest` result asks `/v1/archives/{uuid}` whether that archive has
+  a title ordering at all (D12) and says which kind of empty it is. A daemon
+  that will not answer counts as "it has one", so a failed second request never
   invents an explanation.
 
-**Errors move:** a failed command prints one line to stderr and leaves stdout
-empty, rather than putting an error document where an answer goes. Under
+A failed command prints one line to stderr and leaves stdout empty. Under
 `--json` the document is still on stdout, because that is what was asked for.
 
----
+**Cost:** two output paths for five commands, and a JSON reader in a crate
+whose manifest says it has no dependencies. The reader is small, is only ever
+pointed at the local daemon, and is bounded.
 
 ## D14 — Archive text is scrubbed where it meets a terminal
 
-**Decided:** every string `cairn` prints in a report — titles, paths, MIME
-types, metadata values — has control characters and the bidirectional overrides
-replaced with `.`. Entry content written to a *terminal* is scrubbed too, keeping
-its own newlines and tabs; content that is not text is refused there rather than
-left to wedge the terminal.
+Every string `cairn` prints in a report — titles, paths, MIME types, metadata
+values — has control characters and the bidirectional overrides replaced with
+`.`. Entry content written to a *terminal* is scrubbed too, keeping its own
+newlines and tabs; content that is not text is refused there rather than left
+to wedge the terminal.
 
-A terminal is an interpreter and an archive is hostile input (§7.1). `"\x1b[2J"`
+A terminal is an interpreter and an archive is hostile input: `"\x1b[2J"`
 clears the reader's screen, `"\x1b]0;…\x07"` retitles their window, and a bare
-newline forges a table row. That is not a parser bug: `zimfmt` has no opinion
+newline forges a table row. That is not a parser bug — `zimfmt` has no opinion
 about `ESC` because `ESC` is not a format problem.
 
 **Scrubbed at the boundary, not at the source.** The stored title is the
-archive's actual title and `/v1/archives` has to keep it; `api::json` escapes
-everything below `0x20`, so `--json` consumers were never affected and still see
-what the archive really says.
+archive's actual title and `/v1/archives` keeps it; `api::json` escapes
+everything below `0x20`, so `--json` consumers see what the archive really
+says.
 
-**Cost:** a title containing a tab renders with a `.` where the tab was, and
-`--json` is the way to see the bytes. Redirected or piped, `get` is exact — which
-is how anything is actually extracted, and the reason scrubbing a terminal
-cannot corrupt a saved file.
-
----
+**Cost:** a title containing a tab renders with a `.` where the tab was.
+Redirected or piped, `get` is exact — which is how anything is actually
+extracted, and the reason scrubbing cannot corrupt a saved file.
 
 ## D15 — Opening a file is refused, not fatal
 
-**The bug this records:** `/v1/archives/{uuid}` killed the daemon with `SIGSYS`
-on real archives — sometimes. The same request would work, then not, and
-`cairn` reported only `no response head`. The kernel's audit record named
-syscall 257: `openat`.
+`open`, `openat` and `openat2` return `EACCES` instead of killing the process.
+Everything else outside the allowlist still kills.
 
-Nothing in the serving loop opens a file. glibc's allocator does. It reads
-`/proc/sys/vm/overcommit_memory` when it grows a secondary arena's heap, and
-`/sys/devices/system/cpu/online` when it counts processors for the arena limit —
-and it does either the first time the workload happens to need it. Under one
-request at a time that is startup, before confinement; under concurrent requests
-it is whenever the ninth worker allocates. The metadata scan is what usually
-gets there first, being the most allocation-heavy request there is: it decodes a
-cluster per `M` entry, uncached.
+Nothing in the serving loop opens a file, but glibc's allocator does: it reads
+`/proc/sys/vm/overcommit_memory` when growing a secondary arena's heap and
+`/sys/devices/system/cpu/online` when counting processors for the arena limit,
+the first time the workload needs it. Under concurrent requests that is
+whenever the ninth worker allocates, which killed the daemon with `SIGSYS` on
+real archives, intermittently.
 
-**Decided:** `open`, `openat` and `openat2` return `EACCES` instead of killing
-the process. Everything else outside the allowlist still kills.
+**The security property is unchanged.** These calls were never allowed and
+still are not: no path can be opened, ever, and the call cannot succeed — only
+fail. What changes is that a library asking the filesystem an advisory question
+gets an answer it already handles. Killing is right for a syscall that is
+evidence; `openat` from glibc's malloc is housekeeping.
 
-**The security property is unchanged, and clearer.** These calls were never
-allowed and still are not: no path can be opened, ever, and the call cannot
-succeed — only fail. What changes is that a library asking the filesystem an
-advisory question gets the answer it already handles, instead of taking the
-daemon down. Killing is the right answer for a syscall that is evidence;
-`openat` from glibc's malloc is housekeeping.
+**Rejected:** adding `openat` to the allowlist (it is the one thing the
+confinement rests on); pre-warming the allocator before confining (glibc
+creates a secondary arena on *contention*, so forcing it at startup would make
+the fix probabilistic); `mallopt(M_ARENA_MAX)` (measured — it does not stop the
+`overcommit_memory` read, which is on the heap-growth path); a different
+allocator (larger than everything in `DEPENDENCIES.md` put together).
 
-**Why not the alternatives:**
-
-- *Add `openat` to the allowlist.* That is the one thing §7.1 rests on. No.
-- *Pre-warm the allocator before confining.* The worker pool already touches
-  the allocator before reporting readiness (D7), and it does not help: glibc
-  creates a secondary arena on **contention**, and workers arriving at the gate
-  one at a time all share the main one. Forcing contention at startup would
-  make the fix probabilistic, which is what the bug already was.
-- *`mallopt(M_ARENA_MAX)`.* Tried and measured: it does not stop the
-  `overcommit_memory` read, because that one is on the heap-growth path rather
-  than the arena-count path.
-- *A different allocator.* A C or C++ allocator is a larger dependency than
-  everything in `DEPENDENCIES.md` put together.
-
-**Why the tests did not catch it:** `make sandbox` already requested
-`/v1/archives/{uuid}` under the live filter, one connection at a time, against
-an archive with three tiny metadata entries. It took concurrency *and* an
-allocation-heavy archive together; either alone leaves the allocator in its main
-arena and the question unasked. The test now uses both, and was checked against
-the unfixed filter to confirm it fails there — a regression test that has never
-been seen to fail is a regression test in name only.
-
-**Reported, not silent:** `/v1/status` now says `49 syscalls, 3 denied, kill on
-violation`, so the two classes are visible from outside like everything else
-about the sandbox.
+`make sandbox` drives an allocation-heavy archive under concurrency, which is
+what it takes to reach this at all. `/v1/status` reports `49 syscalls, 3
+denied, kill on violation`, so the two classes are visible from outside.

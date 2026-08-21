@@ -2,8 +2,8 @@
 
 Seven third-party crates. Every one has a reason, a licence, and a note on what
 it is allowed to touch. `ci/check-deps.sh` fails when a crate appears that is
-not in the table below; `ci/check-boundaries.sh` fails when a crate crosses a
-boundary from §5 of the scope.
+not in the table below; `ci/check-boundaries.sh` fails when a crate reaches
+past the dependencies its own crate is allowed.
 
 ## Standing rule
 
@@ -16,7 +16,7 @@ the declared licence of every crate in `Cargo.lock`.
 
 | Crate | Version | Licence | Used by | Why, and what it can reach |
 |---|---|---|---|---|
-| `ruzstd` | 0.9 | MIT | `zimfmt` | Zstandard decoding for cluster bodies. Pure Rust, so the hostile-archive path stays memory-safe (§8.1). Operates on slices; no I/O, no allocation beyond the output we bound. |
+| `ruzstd` | 0.9 | MIT | `zimfmt` | Zstandard decoding for cluster bodies. Pure Rust, so the hostile-archive path stays memory-safe. Operates on slices; no I/O, no allocation beyond the output we bound. |
 | `lzma-rs` | 0.3 | MIT | `zimfmt` | LZMA2/xz decoding for older archives. Pure Rust, same reason. `#![forbid(unsafe_code)]` upstream. Known to panic on a crafted footer (`docs/DECISIONS.md` D11); `zimfmt` catches it. |
 | `byteorder` | 1.5 | Unlicense OR MIT | (via `lzma-rs`) | Integer reads inside the decoder. No I/O of its own. |
 | `crc` | 3.4 | MIT OR Apache-2.0 | (via `lzma-rs`) | xz stream checksums. Pure computation. |
@@ -39,14 +39,14 @@ CLI, has none either.
 ## What is deliberately absent
 
 - **No `libzim` FFI, and no existing ZIM crate.** The parser touches
-  attacker-controlled bytes; it is written here, from the specification (§3.6).
+  attacker-controlled bytes; it is written here, from the specification.
 - **No `serde`, no JSON crate.** The API emits a handful of documented shapes;
   `api::Json` is fifty lines and cannot be surprised by a `Deserialize` impl.
 - **No HTTP crate, no async runtime.** HTTP/1.1 only, thread per connection,
   a fixed pool. Nothing in the tree can open an outbound socket.
 - **No C decompressors (`zstd`, `xz2`).** Faster and more exercised, but they
-  put C on the hostile-archive path — the exact thing §3.6 exists to avoid.
-  Revisit only with a benchmark that says it matters, recorded in
+  put C on the hostile-archive path, which is the one thing the parser exists
+  to avoid. Revisit only with a benchmark that says it matters, recorded in
   `docs/DECISIONS.md`.
 - **No TLS, no compression of responses, no logging framework.**
 
@@ -59,4 +59,4 @@ CLI, has none either.
 
 Anything that can open a socket, spawn a process, or touch the filesystem
 outside the archive directory needs more than a row: it needs an argument in
-`docs/DECISIONS.md` for why the boundary in §5 still holds.
+`docs/DECISIONS.md` for why the boundary still holds.

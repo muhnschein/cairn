@@ -110,7 +110,7 @@ fn router(auth: Option<&str>) -> Router {
             ..Policy::default()
         },
         Box::new(|| Status {
-            version: "0.1.0".into(),
+            version: api::VERSION.into(),
             uptime_seconds: 7,
             listener: "unix:/run/cairn/cairn.sock".into(),
             archive_count: 1,
@@ -159,7 +159,10 @@ fn status_reports_the_sandbox() {
     let r = get(&router(None), "/v1/status");
     assert_eq!(r.status, 200);
     let b = body(&r);
-    assert!(b.contains(r#""version":"0.1.0""#), "{b}");
+    assert!(
+        b.contains(&format!(r#""version":"{}""#, api::VERSION)),
+        "{b}"
+    );
     assert!(
         b.contains(r#""name":"seccomp","state":"applied","detail":"kill""#),
         "{b}"

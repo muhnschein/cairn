@@ -17,6 +17,14 @@ use std::time::Duration;
 
 const DEFAULT_SOCKET: &str = "/run/cairn/cairn.sock";
 
+/// Release name printed by `--version`: `YYYY.0M`, with a counter appended for
+/// a second release in one month.
+///
+/// Spelled out here rather than taken from `api`, because the CLI has no
+/// dependencies at all (`ci/check-boundaries.sh`); a test below pins it to the
+/// manifest, which is the same workspace version `api` is pinned to.
+const VERSION: &str = "2026.08";
+
 const USAGE: &str = "\
 usage: cairn [-s PATH | -a ADDR] [-t TOKEN] [--json] COMMAND [ARGS]
 
@@ -90,7 +98,7 @@ fn run() -> i32 {
             },
             "--json" => as_json = true,
             "-V" | "--version" => {
-                println!("cairn {}", env!("CARGO_PKG_VERSION"));
+                println!("cairn {VERSION}");
                 return 0;
             }
             "-h" | "--help" => {
@@ -383,6 +391,21 @@ mod tests {
         assert_eq!(encode("I/logo.png"), "I/logo.png");
         assert_eq!(encode("a b&c=d"), "a%20b%26c%3Dd");
         assert_eq!(encode("café"), "caf%C3%A9");
+    }
+
+    /// Nothing but this connects the two spellings, and nothing but the
+    /// shared manifest connects this CLI's copy to `api::VERSION`.
+    #[test]
+    fn version_matches_the_manifest() {
+        let major = env!("CARGO_PKG_VERSION_MAJOR");
+        let minor: u32 = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
+        let patch: u32 = env!("CARGO_PKG_VERSION_PATCH").parse().unwrap();
+        let expected = if patch == 0 {
+            format!("{major}.{minor:02}")
+        } else {
+            format!("{major}.{minor:02}.{patch}")
+        };
+        assert_eq!(VERSION, expected);
     }
 
     #[test]
