@@ -76,7 +76,6 @@ anywhere is writable.
 On ABI 4 and later, network access is denied outright as well.
 .It Sy seccomp
 An allowlist for the serving loop, installed on every thread.
-.Ql openat ,
 .Ql clone ,
 .Ql execve ,
 .Ql socket ,
@@ -90,6 +89,19 @@ A syscall outside the list kills the process by default; see
 in
 .Xr cairn.conf 5
 for the alternatives.
+.Pp
+The open family
+.Pq Ql open , Ql openat , Ql openat2
+is refused rather than fatal: the call always fails with
+.Er EACCES ,
+so no path can be opened, but a library that probes the filesystem for a
+tunable gets an error instead of taking the daemon with it.
+glibc's allocator does exactly that \(em it reads
+.Pa /proc/sys/vm/overcommit_memory
+when it grows a second arena's heap, and
+.Pa /sys/devices/system/cpu/online
+when it counts processors \(em and it does so the first time the workload
+happens to need it, which may be under load rather than at startup.
 .El
 .Pp
 .Ql sandbox require

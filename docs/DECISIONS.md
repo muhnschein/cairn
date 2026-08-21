@@ -327,3 +327,57 @@ what the archive really says.
 `--json` is the way to see the bytes. Redirected or piped, `get` is exact — which
 is how anything is actually extracted, and the reason scrubbing a terminal
 cannot corrupt a saved file.
+
+---
+
+## D15 — Opening a file is refused, not fatal
+
+**The bug this records:** `/v1/archives/{uuid}` killed the daemon with `SIGSYS`
+on real archives — sometimes. The same request would work, then not, and
+`cairn` reported only `no response head`. The kernel's audit record named
+syscall 257: `openat`.
+
+Nothing in the serving loop opens a file. glibc's allocator does. It reads
+`/proc/sys/vm/overcommit_memory` when it grows a secondary arena's heap, and
+`/sys/devices/system/cpu/online` when it counts processors for the arena limit —
+and it does either the first time the workload happens to need it. Under one
+request at a time that is startup, before confinement; under concurrent requests
+it is whenever the ninth worker allocates. The metadata scan is what usually
+gets there first, being the most allocation-heavy request there is: it decodes a
+cluster per `M` entry, uncached.
+
+**Decided:** `open`, `openat` and `openat2` return `EACCES` instead of killing
+the process. Everything else outside the allowlist still kills.
+
+**The security property is unchanged, and clearer.** These calls were never
+allowed and still are not: no path can be opened, ever, and the call cannot
+succeed — only fail. What changes is that a library asking the filesystem an
+advisory question gets the answer it already handles, instead of taking the
+daemon down. Killing is the right answer for a syscall that is evidence;
+`openat` from glibc's malloc is housekeeping.
+
+**Why not the alternatives:**
+
+- *Add `openat` to the allowlist.* That is the one thing §7.1 rests on. No.
+- *Pre-warm the allocator before confining.* The worker pool already touches
+  the allocator before reporting readiness (D7), and it does not help: glibc
+  creates a secondary arena on **contention**, and workers arriving at the gate
+  one at a time all share the main one. Forcing contention at startup would
+  make the fix probabilistic, which is what the bug already was.
+- *`mallopt(M_ARENA_MAX)`.* Tried and measured: it does not stop the
+  `overcommit_memory` read, because that one is on the heap-growth path rather
+  than the arena-count path.
+- *A different allocator.* A C or C++ allocator is a larger dependency than
+  everything in `DEPENDENCIES.md` put together.
+
+**Why the tests did not catch it:** `make sandbox` already requested
+`/v1/archives/{uuid}` under the live filter, one connection at a time, against
+an archive with three tiny metadata entries. It took concurrency *and* an
+allocation-heavy archive together; either alone leaves the allocator in its main
+arena and the question unasked. The test now uses both, and was checked against
+the unfixed filter to confirm it fails there — a regression test that has never
+been seen to fail is a regression test in name only.
+
+**Reported, not silent:** `/v1/status` now says `49 syscalls, 3 denied, kill on
+violation`, so the two classes are visible from outside like everything else
+about the sandbox.

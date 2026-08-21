@@ -101,6 +101,89 @@ fn landlock_applies_where_the_kernel_has_it() {
     assert!(status.contains(&format!("abi {abi}")), "{status}");
 }
 
+/// UUID of [`metadata_heavy`].
+const HEAVY_UUID: &str = "63616972-6e2d-7465-7374-2d6865617679";
+
+/// An archive whose metadata scan allocates the way a real one's does.
+///
+/// `/v1/archives/{uuid}` decodes a cluster per `M` entry, uncached, so a real
+/// archive's dozen-odd metadata entries mean a dozen multi-megabyte decodes in
+/// one request. The sample archive's three tiny entries in a 4-blob cluster
+/// allocate nothing worth noticing, which is why this went unseen.
+fn metadata_heavy() -> Vec<(&'static str, Vec<u8>)> {
+    let filler = "lorem ipsum ".repeat(600);
+    let mut b = testutil::sample()
+        .uuid(*b"cairn-test-heavy")
+        .compression(testutil::Compression::Zstd)
+        .blobs_per_cluster(512);
+    for i in 0..600u32 {
+        let body = format!("<html><body>article {i} {filler}</body></html>");
+        b = b.content(
+            &format!("Article_{i:04}"),
+            &format!("Article {i:04}"),
+            0,
+            body.as_bytes(),
+        );
+    }
+    for name in [
+        "Counter",
+        "Creator",
+        "Date",
+        "Flavour",
+        "Language",
+        "Longdescription",
+        "Name",
+        "Publisher",
+        "Scraper",
+        "Source",
+        "Tags",
+    ] {
+        b = b.content_in(b'M', name, "", 2, name.as_bytes());
+    }
+    vec![("heavy.zim", b.build())]
+}
+
+/// Serving must survive the allocator asking the kernel a question.
+///
+/// glibc grows a secondary arena's heap by first reading
+/// `/proc/sys/vm/overcommit_memory`, and counts CPUs by reading
+/// `/sys/devices/system/cpu/online`. Both are `openat`, which the serving loop
+/// itself never calls and which the filter therefore refuses — but refusing by
+/// killing the process made that a crash whose timing depended on how the
+/// workers raced. It took concurrency *and* an allocation-heavy request to
+/// reach; either alone leaves the allocator in its main arena and the question
+/// unasked.
+#[test]
+fn the_allocator_may_ask_the_kernel_without_killing_the_daemon() {
+    let mut d = Daemon::with_archives(
+        "sandbox-arena",
+        "sandbox = require\nsandbox_landlock = off\nsandbox_action = kill\nmax_connections = 64\n",
+        &metadata_heavy(),
+    );
+    let target = format!("/v1/archives/{HEAVY_UUID}");
+    std::thread::scope(|scope| {
+        for _ in 0..64 {
+            scope.spawn(|| {
+                for _ in 0..8 {
+                    // Not asserted here: once the daemon is dead every
+                    // connection fails, and one panicking thread says less than
+                    // the check below.
+                    let _ = d.raw(
+                        format!("GET {target} HTTP/1.1\r\nHost: c\r\nConnection: close\r\n\r\n")
+                            .as_bytes(),
+                    );
+                }
+            });
+        }
+    });
+    assert!(
+        d.alive(),
+        "confinement killed the daemon under concurrent metadata requests; log:\n{}",
+        d.log()
+    );
+    assert_eq!(d.get(&target).status, 200);
+}
+
 #[test]
 fn require_refuses_to_start_when_a_layer_is_missing() {
     // Landlock ABI 0 does not exist, so requiring a layer the kernel lacks is
@@ -168,4 +251,7 @@ fn the_daemon_cannot_open_a_file_after_confinement() {
         "the filter reports its size: {status}"
     );
     assert!(!sandbox::seccomp::allowed_syscalls().contains(&libc::SYS_openat));
+    // Refused, which is not the same as absent: the call fails rather than
+    // killing the daemon, so a library probing /proc costs nothing.
+    assert!(sandbox::seccomp::denied_syscalls().contains(&libc::SYS_openat));
 }

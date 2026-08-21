@@ -12,6 +12,7 @@ const SECCOMP_FILTER_FLAG_TSYNC: libc::c_ulong = 1;
 
 const RET_KILL_PROCESS: u32 = 0x8000_0000;
 const RET_ERRNO_EPERM: u32 = 0x0005_0000 | (libc::EPERM as u32 & 0xffff);
+const RET_ERRNO_EACCES: u32 = 0x0005_0000 | (libc::EACCES as u32 & 0xffff);
 const RET_LOG: u32 = 0x7ffc_0000;
 const RET_ALLOW: u32 = 0x7fff_0000;
 
@@ -82,11 +83,48 @@ impl fmt::Display for Action {
     }
 }
 
+/// Syscalls that are refused with `EACCES` rather than killing the process.
+///
+/// Opening a file is never something the serving loop does: archives are mapped
+/// and the listener is bound before this filter is installed. But glibc's
+/// allocator asks the kernel questions through the filesystem — growing a
+/// secondary arena's heap reads `/proc/sys/vm/overcommit_memory`, and counting
+/// CPUs reads `/sys/devices/system/cpu/online` — and it asks them the first time
+/// the workload happens to need them, which may be at startup or may be under
+/// the tenth concurrent request. Killing the daemon for that is a crash whose
+/// timing depends on how the workers raced, and no allowlist can be complete
+/// against a libc that probes lazily.
+///
+/// So these fail instead. The security property is unchanged and arguably
+/// clearer: **no path can be opened, ever** — the call cannot succeed, only
+/// return an error the caller already has to handle. glibc treats every one of
+/// these reads as advisory and falls back to a default.
+///
+/// Killing stays the answer for everything else, where a syscall the serving
+/// loop does not make is evidence rather than housekeeping.
+pub fn denied_syscalls() -> Vec<libc::c_long> {
+    let mut v: Vec<libc::c_long> = vec![libc::SYS_openat];
+    #[cfg(target_arch = "x86_64")]
+    v.push(libc::SYS_open);
+    // Present since 5.6; the constant is missing on some targets libc supports.
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    ))]
+    v.push(437); // openat2
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
 /// Syscalls the serving loop makes once confinement is in place.
 ///
 /// Notably absent: `openat`, `clone`, `execve`, `socket`, `connect`, `bind`.
 /// Archives are already mapped, workers are already spawned, and the listener
-/// is already bound before this filter is installed.
+/// is already bound before this filter is installed. The open family is absent
+/// from here and present in [`denied_syscalls`], which is not the same as being
+/// allowed: see that function.
 pub fn allowed_syscalls() -> Vec<libc::c_long> {
     let mut v: Vec<libc::c_long> = vec![
         // Serving a connection.
@@ -217,6 +255,20 @@ fn program(allowed: &[libc::c_long], action: Action) -> Vec<Insn> {
             jt: 0,
             jf: 0,
             k: RET_KILL_PROCESS,
+        });
+    }
+    for &nr in &denied_syscalls() {
+        p.push(Insn {
+            code: JMP_JEQ_K,
+            jt: 0,
+            jf: 1,
+            k: nr as u32,
+        });
+        p.push(Insn {
+            code: RET_K,
+            jt: 0,
+            jf: 0,
+            k: RET_ERRNO_EACCES,
         });
     }
     for &nr in allowed {

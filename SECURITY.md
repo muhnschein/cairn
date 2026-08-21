@@ -48,9 +48,13 @@ fuzz target (`fuzz/fuzz_targets/archive.rs`, `fuzz/fuzz_targets/request.rs`).
   per-connection request rate ceiling, both configurable, both with documented
   defaults.
 - **Escalation after a bug.** Landlock leaves the archive directory readable
-  and nothing else writable anywhere; seccomp denies `openat`, `execve`,
-  `socket`, `connect`, `bind` and `clone`. A memory-safety bug in the parser
-  buys an attacker a process that can read archives it could already read.
+  and nothing else writable anywhere; seccomp denies `execve`, `socket`,
+  `connect`, `bind` and `clone` by killing the process, and the open family
+  (`open`, `openat`, `openat2`) by failing it with `EACCES`. No path can be
+  opened either way — the difference is that a library probing `/proc` for a
+  tunable gets an error instead of taking the daemon down with it. A
+  memory-safety bug in the parser buys an attacker a process that can read
+  archives it could already read.
 
 ### Not defended against
 
@@ -87,7 +91,7 @@ $ cairn status | jq .sandbox
   "layers": [
     {"name": "no_new_privs", "state": "applied", "detail": null},
     {"name": "landlock", "state": "applied", "detail": "abi 5"},
-    {"name": "seccomp", "state": "applied", "detail": "49 syscalls, kill on violation, 105 instructions"}
+    {"name": "seccomp", "state": "applied", "detail": "49 syscalls, 3 denied, kill on violation, 111 instructions"}
   ]
 }
 ```
