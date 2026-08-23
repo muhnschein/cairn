@@ -111,6 +111,65 @@ The JSON is left alone:
 escapes control characters on the wire, so
 .Fl -json
 reports what an archive actually says.
+.Sh COMPLETION
+Command and option names are completed statically.
+What an argument completes to is asked of the daemon:
+the first argument of
+.Cm archive ,
+.Cm get ,
+.Cm head ,
+.Cm suggest
+and
+.Cm random
+completes to the UUIDs of open archives, shown with their titles, and the
+second completes to entry paths found by way of their titles through
+.Cm suggest .
+A candidate is therefore something the running daemon can actually serve,
+not a remembered name; nothing is offered for a daemon that is down or
+refuses the request.
+.Pp
+Scripts are installed by
+.Ql make install :
+.Pp
+.Bl -tag -width "fish" -compact
+.It bash
+.Pa share/bash-completion/completions/cairn ;
+the loader scans these directories beneath
+.Ev XDG_DATA_DIRS
+and
+.Ev XDG_DATA_HOME .
+.It zsh
+.Pa share/zsh/site-functions/_cairn ,
+found once that directory is on
+.Ev fpath
+and
+.Ic compinit
+has run.
+.It fish
+.Pa share/fish/vendor_completions.d/cairn.fish .
+Fish always searches its vendor directory under
+.Ev XDG_DATA_HOME ,
+so a per-user install answers without configuration; whether a system
+prefix is searched too depends on the distribution.
+Where it is not,
+.Ic set -U fish_complete_path $fish_complete_path Pa dir
+or a symlink into the user directory settles it.
+.El
+.Pp
+Each script forwards the line being completed to the internal verb
+.Ql cairn __complete Ar words ... ,
+where
+.Ar words
+is everything after
+.Ql cairn
+in the line under construction, global options included, and the word at the
+cursor last, empty if nothing has been typed there yet.
+The answer is one candidate per line,
+.Ql value Ns <TAB> Ns Ar description ,
+with no output at all when the daemon cannot be asked.
+The verb exists so that each shell contributes only its own editing rules;
+a shell not listed above can be wired up in a dozen lines against this
+contract.
 .Sh EXIT STATUS
 .Bl -tag -width Ds -compact
 .It 0

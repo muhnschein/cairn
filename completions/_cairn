@@ -1,0 +1,27 @@
+#compdef cairn
+# zsh completion for cairn(1).
+#
+# Like the bash script, this knows nothing about cairn's grammar: it forwards
+# the line being completed to `cairn __complete`, which answers with
+# `value<TAB>description` lines (cairn(1), COMPLETION). Descriptions are shown
+# beside the value; what gets inserted is only the value. A daemon that does
+# not answer simply contributes nothing.
+
+_cairn() {
+    local -a values displays
+    local raw
+    raw=$(command cairn __complete "${(@)words[2,-1]}" 2>/dev/null) || return 0
+    local line
+    for line in ${(f)raw}; do
+        local value=${line%%$'\t'*}
+        local description=${line#*$'\t'}
+        values+=("$value")
+        if [[ "$description" == "$line" || -z "$description" ]]; then
+            displays+=("$value")
+        else
+            displays+=("$value -- $description")
+        fi
+    done
+    compadd -d displays -a -- values
+}
+_cairn "$@"
