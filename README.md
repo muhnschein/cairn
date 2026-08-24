@@ -109,6 +109,16 @@ fish under `PREFIX`. The example configuration follows the prefix
 (`$(PREFIX)/etc/cairn`), except on `/usr` and `/usr/local`, where it goes
 to `/etc` as the daemon expects.
 
+## Containers
+
+A distroless image — one static binary over `scratch`, nothing to patch
+inside — builds with `make container-build` and is proven to serve,
+rootless and read-only under podman, by `make container-smoke`: the smoke
+sets `sandbox = require` in the container's configuration and asserts that
+Landlock *and* seccomp report as applied inside podman's own seccomp
+filter. For systemd hosts, a rootless quadlet ships as
+`systemd/cairnd.container`; see [`cairnd(8)`](man/cairnd.8), CONTAINERS.
+
 ## Configuration
 
 ```
