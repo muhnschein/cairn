@@ -40,13 +40,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
+      # Calver is not semver, and metadata-action's semver type rejects it
+      # (the first release run pushed only :latest). The tag name minus its
+      # v is the whole rule: v2026.08 -> 2026.08.
+      - id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -55,8 +53,9 @@ jobs:
           file: ./Containerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.ver.outputs.version }}
+            ghcr.io/${{ github.repository }}:latest
           # No attestation manifests: a quadlet pulls a tag and gets the
           # image, not a list of signatures it did not ask about.
           provenance: false
