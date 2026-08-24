@@ -105,7 +105,9 @@ $ sudo systemctl enable --now cairnd
 
 `make install` places `cairnd`, `cairn`, the four man pages, an example
 `cairn.conf`, both systemd units, and shell completion for bash, zsh and
-fish under `PREFIX`.
+fish under `PREFIX`. The example configuration follows the prefix
+(`$(PREFIX)/etc/cairn`), except on `/usr` and `/usr/local`, where it goes
+to `/etc` as the daemon expects.
 
 ## Configuration
 
