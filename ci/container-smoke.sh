@@ -41,7 +41,7 @@ trap cleanup EXIT INT TERM
 echo "container-smoke: running rootless, read-only, no network"
 podman run -d --name cairn-smoke \
 	--read-only --network none \
-	--user 65532:65532 \
+	--user 65532:65532 --userns=keep-id:uid=65532,gid=65532 \
 	-v "$PWD/target/container-smoke/zim:/srv/zim:ro" \
 	-v "$PWD/target/container-smoke/conf/cairn.conf:/etc/cairn/cairn.conf:ro" \
 	-v "$PWD/target/container-smoke/sock:/sock" \

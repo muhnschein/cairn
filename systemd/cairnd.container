@@ -20,6 +20,12 @@ Volume=%h/.config/cairn/cairn.conf:/etc/cairn/cairn.conf:ro
 Volume=%h/srv/zim:/srv/zim:ro
 Volume=%t/cairn:/sock
 
+# keep-id maps the image's nonroot uid to the host user, so the daemon —
+# uid 65532 in the container, you outside it — may create its socket on the
+# runtime directory systemd made for it. Without this, a bind mount is
+# owned by nobody and every write is refused.
+UserNS=keep-id:uid=65532,gid=65532
+
 # What ProtectSystem=strict, ReadOnlyPaths, PrivateNetwork, IPAddressDeny,
 # PrivateTmp, PrivateDevices and CapabilityBoundingSet= do for the
 # plain-host units happens here at the container boundary instead, and
