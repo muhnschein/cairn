@@ -116,7 +116,9 @@ inside — builds with `make container-build` and is proven to serve,
 rootless and read-only under podman, by `make container-smoke`: the smoke
 sets `sandbox = require` in the container's configuration and asserts that
 Landlock *and* seccomp report as applied inside podman's own seccomp
-filter. For systemd hosts, a rootless quadlet ships as
+filter. Tagging a release (`v2026.08`) publishes the same image to
+`ghcr.io/muhnschein/cairn:2026.08` for amd64 and arm64, and the quadlet
+references it directly; for systemd hosts, it ships as
 `systemd/cairnd.container`; see [`cairnd(8)`](man/cairnd.8), CONTAINERS.
 
 ## Configuration

@@ -151,6 +151,11 @@ which runs it rootless and read-only under podman with
 set and asserts that both confinement layers report as applied inside
 podman's own seccomp filter.
 The two filters compose: what podman allows, cairnd's allowlist narrows.
+Tagging a release publishes the same image to
+.Ql ghcr.io/muhnschein/cairn ,
+under the release name and
+.Ql latest ;
+the quadlet references it directly.
 .Pp
 For systemd deployments, a rootless quadlet ships as
 .Pa systemd/cairnd.container :
