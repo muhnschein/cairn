@@ -137,6 +137,41 @@ This is an availability property, not a confidentiality or integrity one:
 whoever can truncate the archive already has write access to the data
 directory and is outside the threat model.
 .El
+.Sh CONTAINERS
+A distroless image — one static binary over
+.Sy scratch ,
+no shell, no package manager — is built from the repository
+.Ql Containerfile
+by
+.Ql make container-build ,
+and proven to serve by
+.Ql make container-smoke ,
+which runs it rootless and read-only under podman with
+.Ql sandbox = require
+set and asserts that both confinement layers report as applied inside
+podman's own seccomp filter.
+The two filters compose: what podman allows, cairnd's allowlist narrows.
+.Pp
+For systemd deployments, a rootless quadlet ships as
+.Pa systemd/cairnd.container :
+copy it to
+.Pa ~/.config/containers/systemd/
+and
+.Ql systemctl --user daemon-reload .
+It expects three mounts: the configuration at
+.Pa ~/.config/cairn/cairn.conf ,
+the archives under
+.Pa ~/srv/zim ,
+and a runtime directory for the socket, which systemd creates.
+The socket appears on the runtime directory, so clients say
+.Ql cairn -s "${XDG_RUNTIME_DIR}/cairn/cairn.sock" status .
+The unit's process is podman rather than
+.Nm ,
+so the system unit's mount-based protections are deliberately not
+repeated there; they are enforced at the container boundary instead,
+and everything syscall-level is enforced by
+.Nm
+itself.
 .Sh THE SOCKET DIRECTORY
 A unix socket cannot be created in a directory that does not exist, and
 .Nm

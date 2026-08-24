@@ -1,0 +1,48 @@
+# A rootless quadlet for cairnd under podman.
+#
+# Install into ~/.config/containers/systemd/, then:
+#   systemctl --user daemon-reload
+#   systemctl --user start cairnd.service
+# The image is built by `make container-build` (or loaded from an archive);
+# see cairnd(8), CONTAINERS, for the layout and what each line inherits
+# from the plain-host units.
+
+[Container]
+Image=localhost/cairn:2026.08
+ContainerName=cairnd
+
+# Configuration read-only; the archive directory read-only; the socket on a
+# runtime directory systemd makes and cleans up (%t = $XDG_RUNTIME_DIR).
+# Host clients reach the daemon at $XDG_RUNTIME_DIR/cairn/cairn.sock:
+#   cairn -s "${XDG_RUNTIME_DIR}/cairn/cairn.sock" status
+Exec=-c /etc/cairn/cairn.conf
+Volume=%h/.config/cairn/cairn.conf:/etc/cairn/cairn.conf:ro
+Volume=%h/srv/zim:/srv/zim:ro
+Volume=%t/cairn:/sock
+
+# What ProtectSystem=strict, ReadOnlyPaths, PrivateNetwork, IPAddressDeny,
+# PrivateTmp, PrivateDevices and CapabilityBoundingSet= do for the
+# plain-host units happens here at the container boundary instead, and
+# stricter: the whole root filesystem is read-only, there is no network
+# namespace with any interface in it, no devices, no capabilities, and no
+# privilege escalation anywhere in the chain.
+Network=none
+ReadOnly=yes
+NoNewPrivileges=true
+DropCapability=all
+
+[Service]
+# Deliberately lean: this unit's process is podman, not cairnd, and the
+# user instance of systemd cannot apply the system unit's mount-based
+# protections without taking away what rootless podman itself needs.
+# Everything syscall-level is enforced twice already — by podman's default
+# seccomp profile outside, and by cairnd's own allowlist inside when
+# `sandbox = require` is set in the configuration.
+RuntimeDirectory=cairn
+RuntimeDirectoryMode=0750
+NoNewPrivileges=yes
+Restart=on-failure
+RestartSec=1s
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,14 @@
+# The image is the daemon and nothing else; keep gigabytes out of the
+# build context.
+.target/
+.git/
+.github/
+ci/
+contrib/archives/
+docs/
+fuzz/
+man/
+systemd/
+completions/
+*.zim
+*.md

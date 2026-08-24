@@ -16,8 +16,10 @@ ZSHCOMPDIR ?= $(PREFIX)/share/zsh/site-functions
 FISHCOMPDIR ?= $(PREFIX)/share/fish/vendor_completions.d
 DESTDIR ?=
 FUZZ_TIME ?= 60
+IMAGE ?= localhost/cairn
+TAG ?= $(shell grep -oE '"[0-9]{4}\.[0-9]{2}"' crates/api/src/lib.rs | head -1 | tr -d '"')
 
-.PHONY: all build test smoke chaos sandbox lint fmt man-lint doc-lint completion-lint fuzz fuzz-seed deny deps check install uninstall clean
+.PHONY: all build test smoke chaos sandbox lint fmt man-lint doc-lint completion-lint fuzz fuzz-seed deny deps check install uninstall container-build container-smoke clean
 
 all: build
 
@@ -66,6 +68,15 @@ completion-lint:
 doc-lint:
 	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps
 
+# The distroless image, and the proof that it serves: build, run rootless
+# and read-only under podman, query through the socket on the runtime
+# directory. Skips itself where podman is absent; see ci/container-smoke.sh.
+container-build:
+	podman build -t $(IMAGE):$(TAG) .
+
+container-smoke:
+	ci/container-smoke.sh
+
 # Both fuzz targets, seeded from the committed corpus. Needs a nightly
 # toolchain and cargo-fuzz. The corpus directory is kept: the nightly job
 # restores it from the last run so coverage accumulates instead of restarting.
@@ -93,7 +104,7 @@ deny:
 		echo "deny: cargo-deny not installed, skipping"; \
 	fi
 
-check: fmt lint test deps deny man-lint doc-lint completion-lint
+check: fmt lint test deps deny man-lint doc-lint completion-lint container-smoke
 
 install: build
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)/man1 $(DESTDIR)$(MANDIR)/man5 \
