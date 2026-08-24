@@ -187,14 +187,13 @@ impl Drop for Daemon {
 /// Path to the `cairn` CLI, building it if this run has not.
 ///
 /// `cargo test -p cairnd` builds this package's binaries, not another crate's,
-/// so the CLI may simply not exist yet.
+/// so the CLI may simply not exist yet. The build itself is left to cargo:
+/// an existing binary may be stale, and an up-to-date one costs cargo
+/// nothing to confirm.
 pub fn cli_binary() -> PathBuf {
     static BUILD: std::sync::Once = std::sync::Once::new();
     let path = sibling_binary("cairn");
     BUILD.call_once(|| {
-        if path.exists() {
-            return;
-        }
         let mut cargo = Command::new(env!("CARGO"));
         cargo.args(["build", "--quiet", "--package", "cairn"]);
         if path.parent().is_some_and(|p| p.ends_with("release")) {

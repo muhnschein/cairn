@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod complete;
 mod json;
 mod render;
 mod text;
@@ -49,25 +50,25 @@ commands:
   raw METHOD TARGET          any request, for debugging
 ";
 
-enum Endpoint {
+/// Where the daemon is and how to reach it, once.
+pub(crate) enum Endpoint {
     Unix(PathBuf),
     Tcp(String),
 }
 
 /// Where the daemon is and how to reach it, once.
-struct Client {
+pub(crate) struct Client {
     endpoint: Endpoint,
     token: Option<String>,
     timeout: Duration,
 }
 
 /// One HTTP answer.
-struct Reply {
-    status: u16,
+pub(crate) struct Reply {
+    pub(crate) status: u16,
     headers: String,
-    body: Vec<u8>,
+    pub(crate) body: Vec<u8>,
 }
-
 fn main() {
     std::process::exit(run());
 }
@@ -76,6 +77,7 @@ fn run() -> i32 {
     let mut endpoint = Endpoint::Unix(PathBuf::from(DEFAULT_SOCKET));
     let mut token: Option<String> = None;
     let mut timeout = Duration::from_secs(30);
+    let mut timeout_given = false;
     let mut as_json = false;
     let mut rest: Vec<String> = Vec::new();
 
@@ -95,7 +97,10 @@ fn run() -> i32 {
                 None => return usage_error(&arg),
             },
             "--timeout" => match args.next().and_then(|v| v.parse().ok()) {
-                Some(secs) => timeout = Duration::from_secs(secs),
+                Some(secs) => {
+                    timeout = Duration::from_secs(secs);
+                    timeout_given = true;
+                }
                 None => return usage_error(&arg),
             },
             "--json" => as_json = true,
@@ -121,6 +126,20 @@ fn run() -> i32 {
                 break;
             }
         }
+    }
+
+    // Shell editors call this on nearly every keystroke, with the whole line
+    // being completed after the verb (`cairn(1)`, COMPLETION). The forwarded
+    // words carry the person's own `-s`, `-a`, `-t`, so the verb re-reads
+    // them; what was parsed before the verb here is the fallback.
+    if rest.first().map(String::as_str) == Some("__complete") {
+        let completion = if timeout_given {
+            timeout
+        } else {
+            timeout.min(Duration::from_secs(2))
+        };
+        let words: Vec<String> = rest[1..].to_vec();
+        return complete::run(endpoint, token.as_deref(), completion, &words);
     }
 
     let Some(command) = rest.first().cloned() else {
@@ -287,7 +306,7 @@ fn usage_error(arg: &str) -> i32 {
 }
 
 impl Client {
-    fn request(&self, method: &str, target: &str) -> std::io::Result<Reply> {
+    pub(crate) fn request(&self, method: &str, target: &str) -> std::io::Result<Reply> {
         let mut head =
             format!("{method} {target} HTTP/1.1\r\nHost: cairn\r\nConnection: close\r\n");
         if let Some(t) = &self.token {
@@ -367,7 +386,7 @@ trait ReadWrite: Read + Write {}
 impl<T: Read + Write> ReadWrite for T {}
 
 /// Percent-encode everything the daemon would refuse in a request target.
-fn encode(s: &str) -> String {
+pub(crate) fn encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for &b in s.as_bytes() {
         match b {

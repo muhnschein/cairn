@@ -7,10 +7,13 @@ MANDIR ?= $(PREFIX)/share/man
 SYSCONFDIR ?= /etc
 UNITDIR ?= $(PREFIX)/lib/systemd/system
 USERUNITDIR ?= $(PREFIX)/lib/systemd/user
+BASHCOMPDIR ?= $(PREFIX)/share/bash-completion/completions
+ZSHCOMPDIR ?= $(PREFIX)/share/zsh/site-functions
+FISHCOMPDIR ?= $(PREFIX)/share/fish/vendor_completions.d
 DESTDIR ?=
 FUZZ_TIME ?= 60
 
-.PHONY: all build test smoke chaos sandbox lint fmt man-lint doc-lint fuzz fuzz-seed deny deps check install uninstall clean
+.PHONY: all build test smoke chaos sandbox lint fmt man-lint doc-lint completion-lint fuzz fuzz-seed deny deps check install uninstall clean
 
 all: build
 
@@ -46,6 +49,16 @@ man-lint:
 		echo "man-lint: mandoc not installed, skipping"; \
 	fi
 
+# Parse the completion scripts with whichever shells are installed. Best
+# effort, like man-lint: a missing shell is a skipped check, not a failure.
+completion-lint:
+	@if command -v bash >/dev/null 2>&1; then bash -n completions/cairn.bash; \
+	else echo "completion-lint: bash not installed, skipping"; fi
+	@if command -v zsh >/dev/null 2>&1; then zsh -n completions/_cairn; \
+	else echo "completion-lint: zsh not installed, skipping"; fi
+	@if command -v fish >/dev/null 2>&1; then fish --no-execute completions/cairn.fish; \
+	else echo "completion-lint: fish not installed, skipping"; fi
+
 doc-lint:
 	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps
 
@@ -76,12 +89,13 @@ deny:
 		echo "deny: cargo-deny not installed, skipping"; \
 	fi
 
-check: fmt lint test deps deny man-lint doc-lint
+check: fmt lint test deps deny man-lint doc-lint completion-lint
 
 install: build
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)/man1 $(DESTDIR)$(MANDIR)/man5 \
 		$(DESTDIR)$(MANDIR)/man7 $(DESTDIR)$(MANDIR)/man8 \
-		$(DESTDIR)$(SYSCONFDIR)/cairn $(DESTDIR)$(UNITDIR) $(DESTDIR)$(USERUNITDIR)
+		$(DESTDIR)$(SYSCONFDIR)/cairn $(DESTDIR)$(UNITDIR) $(DESTDIR)$(USERUNITDIR) \
+		$(DESTDIR)$(BASHCOMPDIR) $(DESTDIR)$(ZSHCOMPDIR) $(DESTDIR)$(FISHCOMPDIR)
 	install -m 0755 target/release/cairnd $(DESTDIR)$(BINDIR)/cairnd
 	install -m 0755 target/release/cairn $(DESTDIR)$(BINDIR)/cairn
 	install -m 0644 man/cairn.1 $(DESTDIR)$(MANDIR)/man1/cairn.1
@@ -89,6 +103,9 @@ install: build
 	install -m 0644 man/cairn-api.7 $(DESTDIR)$(MANDIR)/man7/cairn-api.7
 	install -m 0644 man/cairnd.8 $(DESTDIR)$(MANDIR)/man8/cairnd.8
 	install -m 0644 -b contrib/cairn.conf $(DESTDIR)$(SYSCONFDIR)/cairn/cairn.conf
+	install -m 0644 completions/cairn.bash $(DESTDIR)$(BASHCOMPDIR)/cairn
+	install -m 0644 completions/_cairn $(DESTDIR)$(ZSHCOMPDIR)/_cairn
+	install -m 0644 completions/cairn.fish $(DESTDIR)$(FISHCOMPDIR)/cairn.fish
 	sed 's|@BINDIR@|$(BINDIR)|g; s|@SYSCONFDIR@|$(SYSCONFDIR)|g' \
 		systemd/cairnd.service > $(DESTDIR)$(UNITDIR)/cairnd.service
 	sed 's|@BINDIR@|$(BINDIR)|g; s|@SYSCONFDIR@|$(SYSCONFDIR)|g' \
@@ -99,6 +116,8 @@ uninstall:
 	rm -f $(DESTDIR)$(MANDIR)/man1/cairn.1 $(DESTDIR)$(MANDIR)/man5/cairn.conf.5
 	rm -f $(DESTDIR)$(MANDIR)/man7/cairn-api.7 $(DESTDIR)$(MANDIR)/man8/cairnd.8
 	rm -f $(DESTDIR)$(UNITDIR)/cairnd.service $(DESTDIR)$(USERUNITDIR)/cairnd.service
+	rm -f $(DESTDIR)$(BASHCOMPDIR)/cairn $(DESTDIR)$(ZSHCOMPDIR)/_cairn
+	rm -f $(DESTDIR)$(FISHCOMPDIR)/cairn.fish
 
 clean:
 	$(CARGO) clean

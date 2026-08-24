@@ -282,3 +282,40 @@ allocator (larger than everything in `DEPENDENCIES.md` put together).
 `make sandbox` drives an allocation-heavy archive under concurrency, which is
 what it takes to reach this at all. `/v1/status` reports `49 syscalls, 3
 denied, kill on violation`, so the two classes are visible from outside.
+
+## D16 — Completion candidates come from the daemon, through a hidden verb
+
+Shell completion is two different problems. Command and option names are
+static and belong in scripts. Argument values are not: the UUIDs and entry
+paths a person wants to complete against are whatever `cairnd` is serving
+right now, addressed by UUID (§5.3), so only the daemon knows them.
+
+The scripts therefore know nothing about cairn's grammar beyond where to
+send words. Each one forwards the line being completed to an internal verb,
+`cairn __complete WORDS...`, which plans from the word positions, asks the
+same endpoint and token the person configured, and prints candidates as
+`value<TAB>description` lines. The JSON parsing, prefix filtering, and text
+scrubbing all happen in Rust, tested like any other parser; the shell side
+is a dozen lines per interpreter that cannot drift from the CLI.
+
+**The verb is hidden but not undocumented**: it is absent from the usage
+message because no person types it, and specified in cairn(1) under
+COMPLETION so other shells can be wired up against it. It is not part of
+the `/v1/` promise; it is a client-side convenience over the same API every
+client uses, and adds nothing to the daemon's surface.
+
+**Silence is the failure mode, deliberately.** A completion function runs on
+nearly every keystroke; an unreachable daemon, a wrong token, or a malformed
+answer all produce no candidates, never output on standard error and never a
+nonzero exit. Diagnosis belongs to `cairn status`, which a person runs once,
+on purpose. For the same reason the completion request waits at most two
+seconds unless `--timeout` was given explicitly.
+
+**Rejected:** `clap_complete` or any completion-generating crate — it would
+need `clap` underneath it, and the CLI has no dependencies by boundary
+(ci/check-boundaries.sh), with argument parsing already hand-rolled;
+parsing the daemon's JSON in each shell instead — three implementations of
+JSON string unescaping in languages without parsers, untestable, for the
+sake of touching no Rust; completing paths by prefix directly — there is no
+path-prefix endpoint, and suggest matches titles (D5), which is what a
+person actually remembers.
