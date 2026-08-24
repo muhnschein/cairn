@@ -3,12 +3,13 @@
 # Install into ~/.config/containers/systemd/, then:
 #   systemctl --user daemon-reload
 #   systemctl --user start cairnd.service
-# The image is built by `make container-build` (or loaded from an archive);
-# see cairnd(8), CONTAINERS, for the layout and what each line inherits
-# from the plain-host units.
+# The image reference below is what tagging a release publishes to
+# ghcr.io; `make container-build` builds the same Containerfile locally
+# if you would rather ship your own build. See cairnd(8), CONTAINERS, for
+# the layout and what each line inherits from the plain-host units.
 
 [Container]
-Image=localhost/cairn:2026.08
+Image=ghcr.io/muhnschein/cairn:2026.08
 ContainerName=cairnd
 
 # Configuration read-only; the archive directory read-only; the socket on a
