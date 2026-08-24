@@ -4,7 +4,11 @@ CARGO ?= cargo
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/share/man
-SYSCONFDIR ?= /etc
+# Configuration follows the prefix, except on the two FHS system prefixes,
+# where the daemon's compiled-in default (/etc/cairn/cairn.conf) and the man
+# pages expect it. An explicitly given SYSCONFDIR always wins.
+SYSCONFDIR ?= $(shell if test "$(PREFIX)" = /usr -o "$(PREFIX)" = /usr/local; \
+	then echo /etc; else echo "$(PREFIX)/etc"; fi)
 UNITDIR ?= $(PREFIX)/lib/systemd/system
 USERUNITDIR ?= $(PREFIX)/lib/systemd/user
 BASHCOMPDIR ?= $(PREFIX)/share/bash-completion/completions
@@ -110,6 +114,8 @@ install: build
 		systemd/cairnd.service > $(DESTDIR)$(UNITDIR)/cairnd.service
 	sed 's|@BINDIR@|$(BINDIR)|g; s|@SYSCONFDIR@|$(SYSCONFDIR)|g' \
 		systemd/cairnd-user.service > $(DESTDIR)$(USERUNITDIR)/cairnd.service
+	@echo "install: to undo, run: make uninstall PREFIX=$(PREFIX) SYSCONFDIR=$(SYSCONFDIR)"
+	@test -z "$(DESTDIR)" || echo "install: staged under DESTDIR=$(DESTDIR); remove it by hand"
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/cairnd $(DESTDIR)$(BINDIR)/cairn
@@ -118,6 +124,10 @@ uninstall:
 	rm -f $(DESTDIR)$(UNITDIR)/cairnd.service $(DESTDIR)$(USERUNITDIR)/cairnd.service
 	rm -f $(DESTDIR)$(BASHCOMPDIR)/cairn $(DESTDIR)$(ZSHCOMPDIR)/_cairn
 	rm -f $(DESTDIR)$(FISHCOMPDIR)/cairn.fish
+	rm -f $(DESTDIR)$(SYSCONFDIR)/cairn/cairn.conf~
+	@if test -f "$(DESTDIR)$(SYSCONFDIR)/cairn/cairn.conf"; then \
+		echo "uninstall: kept $(DESTDIR)$(SYSCONFDIR)/cairn/cairn.conf"; \
+	fi
 
 clean:
 	$(CARGO) clean
