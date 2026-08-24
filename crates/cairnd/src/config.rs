@@ -89,7 +89,7 @@ pub struct Config {
     pub max_cluster_bytes: usize,
     /// Total decompressed bytes the shared cluster cache may hold.
     pub cluster_cache_bytes: usize,
-    /// Ceiling on the bytes one metadata scan may decode.
+    /// Ceiling on one `M` namespace value, as `cairn.conf(5)` documents it.
     pub max_metadata_bytes: usize,
     /// Ceiling on the entries one metadata scan may read.
     pub max_metadata_entries: usize,
@@ -295,6 +295,19 @@ impl Config {
         }
         if self.max_cluster_bytes == 0 {
             return Err(bad("max_cluster_bytes must be non-zero"));
+        }
+        // A socket refuses a zero timeout, and the daemon answers that by
+        // dropping the connection. Every client would be disconnected without
+        // a byte and without a log line, so this is refused where it can still
+        // name the key.
+        for (key, value) in [
+            ("read_timeout", self.read_timeout),
+            ("write_timeout", self.write_timeout),
+            ("keepalive_timeout", self.keepalive_timeout),
+        ] {
+            if value.is_zero() {
+                return Err(bad(&format!("{key} must be non-zero")));
+            }
         }
         if self
             .auth_token
@@ -532,6 +545,18 @@ log_level = debug
         assert!(Config::parse("content_security_policy = default-src 'none'").is_ok());
         let sneaky = "content_security_policy = a\u{7f}b";
         assert!(Config::parse(sneaky).is_err());
+    }
+
+    /// A socket refuses `SO_RCVTIMEO` of zero, and a daemon that took the
+    /// value anyway would accept every connection and drop it unanswered.
+    #[test]
+    fn a_zero_timeout_is_refused_rather_than_silently_dropping_connections() {
+        for key in ["read_timeout", "write_timeout", "keepalive_timeout"] {
+            let e = Config::parse(&format!("{key} = 0")).unwrap_err();
+            assert!(e.to_string().contains(key), "{e}");
+            assert!(Config::parse(&format!("{key} = 0ms")).is_err(), "{key}");
+            assert!(Config::parse(&format!("{key} = 1ms")).is_ok(), "{key}");
+        }
     }
 
     #[test]

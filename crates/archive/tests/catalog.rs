@@ -338,6 +338,40 @@ fn a_redirect_to_itself_does_not_loop() {
     assert_eq!(c.entry(&uuid, "real.html").expect("real").path, "real.html");
 }
 
+/// A scan reuses the cluster it just decoded, so it must still be reading the
+/// right one. Two blobs to a cluster puts every key in a different half of the
+/// namespace from its neighbour and makes the scan swap clusters repeatedly.
+#[test]
+fn metadata_is_correct_when_its_entries_span_several_clusters() {
+    let mut b = Builder::new()
+        .compression(Compression::Zstd)
+        .blobs_per_cluster(2)
+        .content("index.html", "Index", 0, b"x");
+    for i in 0..12 {
+        b = b.content_in(
+            b'M',
+            &format!("Key{i:02}"),
+            "",
+            2,
+            format!("value{i:02}").as_bytes(),
+        );
+    }
+    let dir = TempDir::new("meta-clusters");
+    dir.write("spread.zim", &b.build());
+
+    let c = catalog(&dir);
+    let m = c.metadata(&uuid_of(&c)).expect("metadata");
+    assert!(m.binary.is_empty(), "{m:?}");
+    assert_eq!(m.text.len(), 12, "{m:?}");
+    for i in 0..12 {
+        assert_eq!(
+            m.text[i],
+            (format!("Key{i:02}"), format!("value{i:02}")),
+            "key {i} read the wrong blob"
+        );
+    }
+}
+
 #[test]
 fn metadata_stops_at_the_entry_limit() {
     let mut b = Builder::new().content("index.html", "Index", 0, b"x");

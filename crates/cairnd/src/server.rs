@@ -8,7 +8,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use api::{Fault, Limits, ParseError, RateLimiter, Request, Response, Router};
 
@@ -155,6 +155,7 @@ fn worker(listener: &Listener, gate: &Gate) {
         match listener.accept() {
             Ok(stream) => {
                 serving.metrics.active.fetch_add(1, Ordering::Relaxed);
+                serving.metrics.served.fetch_add(1, Ordering::Relaxed);
                 // A panic while serving costs the connection, never the
                 // worker: a pool that shrinks on hostile input is a denial of
                 // service, and the pool cannot be refilled after confinement.
@@ -191,9 +192,22 @@ fn serve_connection(serving: &Serving, mut stream: Stream) {
     let mut scanned = 0usize;
     let mut requests = 0u32;
     let mut rate = RateLimiter::new(config.request_rate, config.request_burst, Instant::now());
+    // What the socket's read timeout is right now, which the reader switches
+    // between the two below. It outlives one request because the socket does:
+    // starting each request from an assumption would leave a request that
+    // followed an idle wait governed by the idle bound.
+    let mut applied = config.read_timeout;
 
     loop {
-        let request = match read_request(&mut stream, &mut buf, &mut scanned, &limits, requests) {
+        let request = match read_request(
+            &mut stream,
+            &mut buf,
+            &mut scanned,
+            &limits,
+            requests,
+            config,
+            &mut applied,
+        ) {
             Ok(Some((request, consumed))) => {
                 buf.drain(..consumed);
                 scanned = 0;
@@ -225,7 +239,6 @@ fn serve_connection(serving: &Serving, mut stream: Stream) {
         let keep_alive = response.keep_alive;
 
         let wrote = write_response(&mut stream, &response);
-        serving.metrics.served.fetch_add(1, Ordering::Relaxed);
         if config.access_log {
             // Method, outcome and size only: the target is client input.
             info!(
@@ -244,12 +257,21 @@ fn serve_connection(serving: &Serving, mut stream: Stream) {
 }
 
 /// Read until one request parses. `Ok(None)` means the peer went away.
+///
+/// Two different waits happen here and they are not the same thing. A
+/// connection holding nothing after it has already been answered is idle, and
+/// `keepalive_timeout` bounds how long it may stay that way; once a byte of a
+/// request has arrived, `read_timeout` bounds how long the rest may take. The
+/// socket carries one read timeout, so it is switched between the two and
+/// `applied` says which one it is carrying.
 fn read_request(
     stream: &mut Stream,
     buf: &mut Vec<u8>,
     scanned: &mut usize,
     limits: &Limits,
     requests: u32,
+    config: &Config,
+    applied: &mut Duration,
 ) -> Result<Option<(Request, usize)>, Fault> {
     loop {
         match Request::parse_hinted(buf, limits, *scanned) {
@@ -260,6 +282,21 @@ fn read_request(
         *scanned = buf.len();
         if buf.len() > limits.max_request_line + limits.max_header_bytes {
             return Err(Fault::HeadersTooLarge);
+        }
+
+        // About to block, so decide which of the two this wait is. The
+        // syscall is made only when the answer changes, which for the default
+        // configuration is never.
+        let wanted = if buf.is_empty() && requests > 0 {
+            config.keepalive_timeout
+        } else {
+            config.read_timeout
+        };
+        if wanted != *applied {
+            if stream.set_read_timeout(wanted).is_err() {
+                return Ok(None);
+            }
+            *applied = wanted;
         }
 
         let mut chunk = [0u8; 4096];

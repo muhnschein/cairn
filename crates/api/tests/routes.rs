@@ -439,6 +439,42 @@ fn error_bodies_never_echo_the_request() {
     assert_eq!(b, String::from_utf8(Fault::BadUuid.body()).unwrap());
 }
 
+/// Two values for one header name is a response two clients can read two
+/// ways, and a 416 is the one answer built by layering entry headers over a
+/// fault document that already carries some of them.
+#[test]
+fn no_response_sends_a_header_twice() {
+    let entry = format!("/v1/archives/{UUID}/entry/index.html");
+    let cases: Vec<(String, Vec<(&str, &str)>)> = vec![
+        (entry.clone(), vec![]),
+        (entry.clone(), vec![("Range", "bytes=2-4")]),
+        (entry.clone(), vec![("Range", "bytes=50-60")]),
+        (entry, vec![("Range", "bytes=0-1,4-5")]),
+        ("/v1/status".to_owned(), vec![]),
+        ("/v1/archives".to_owned(), vec![]),
+        (format!("/v1/archives/{UUID}"), vec![]),
+        (format!("/v1/archives/{UUID}/random"), vec![]),
+        (format!("/v1/archives/{UUID}/suggest?q=A"), vec![]),
+        ("/v1/missing".to_owned(), vec![]),
+    ];
+    for (target, headers) in cases {
+        let r = request(&router(None), "GET", &target, &headers);
+        let mut seen: Vec<String> = r
+            .headers
+            .iter()
+            .map(|(n, _)| n.to_ascii_lowercase())
+            .collect();
+        seen.sort();
+        let mut unique = seen.clone();
+        unique.dedup();
+        assert_eq!(
+            seen, unique,
+            "{target} {headers:?} -> {} sent a header twice: {seen:?}",
+            r.status
+        );
+    }
+}
+
 #[test]
 fn head_of_every_response_is_well_formed() {
     let targets = [

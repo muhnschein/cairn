@@ -117,6 +117,17 @@ impl Stream {
         }
     }
 
+    /// Replace the read timeout, leaving the write timeout alone.
+    ///
+    /// A connection between requests is idle, not slow, and `keepalive_timeout`
+    /// governs that wait; `read_timeout` governs a request already in flight.
+    pub fn set_read_timeout(&self, read: Duration) -> io::Result<()> {
+        match self {
+            Stream::Unix(s) => s.set_read_timeout(Some(read)),
+            Stream::Tcp(s) => s.set_read_timeout(Some(read)),
+        }
+    }
+
     /// Half-close, ignoring errors from a peer that already left.
     pub fn shutdown(&self) {
         let _ = match self {
