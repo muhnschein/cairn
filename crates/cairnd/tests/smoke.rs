@@ -5,7 +5,11 @@
 
 mod common;
 
-use common::{Daemon, SAMPLE_UUID, ZSTD_UUID, parse_replies};
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+use std::time::{Duration, Instant};
+
+use common::{Daemon, SAMPLE_UUID, ZSTD_UUID, parse_replies, parse_reply};
 
 fn entry(uuid: &str, path: &str) -> String {
     format!("/v1/archives/{uuid}/entry/{path}")
@@ -244,6 +248,140 @@ fn keepalive_request_ceiling_closes_the_connection() {
     let replies = parse_replies(&d.raw(raw.as_bytes()).unwrap());
     assert_eq!(replies.len(), 2, "the connection closed after two requests");
     assert!(replies[1].head.contains("Connection: close"));
+}
+
+/// `keepalive_timeout` bounds the wait between requests, and it is a
+/// different bound from `read_timeout`, which covers a request already
+/// arriving. A connection sitting idle must be let go on the first one; taken
+/// on the second, this configuration would hold the connection thirty seconds.
+#[test]
+fn an_idle_connection_is_closed_by_the_keepalive_timeout() {
+    let d = Daemon::start(
+        "smoke-katimeout",
+        "read_timeout = 30s\nkeepalive_timeout = 2s\n",
+    );
+    let mut s = UnixStream::connect(d.socket()).expect("connect");
+    s.set_read_timeout(Some(Duration::from_secs(12)))
+        .expect("read timeout");
+    s.write_all(b"GET /v1/status HTTP/1.1\r\nHost: c\r\n\r\n")
+        .expect("write");
+    s.flush().expect("flush");
+
+    // Read to end of file: the answer, then nothing at all until the daemon
+    // gives up on the connection and closes it.
+    let started = Instant::now();
+    let mut out = Vec::new();
+    s.read_to_end(&mut out)
+        .unwrap_or_else(|e| panic!("the daemon never closed the idle connection: {e}"));
+    let waited = started.elapsed();
+
+    assert_eq!(parse_reply(&out).expect("a reply").status, 200);
+    assert!(
+        waited >= Duration::from_secs(1),
+        "closed in {waited:?}: the connection was not held open for keep-alive at all"
+    );
+    assert!(
+        waited < Duration::from_secs(10),
+        "held for {waited:?}: read_timeout governed the idle wait, not keepalive_timeout"
+    );
+}
+
+/// The idle bound must not leak into the request that follows it. The socket
+/// carries one read timeout, so a connection that waited under
+/// `keepalive_timeout` and then began receiving a request has to be put back
+/// under `read_timeout` before the rest of it arrives — including when the
+/// request arrived in the same read that ended the idle wait, which is the
+/// case where nothing else forces the switch.
+#[test]
+fn a_request_after_an_idle_wait_is_governed_by_the_read_timeout() {
+    let d = Daemon::start(
+        "smoke-kaswitch",
+        "read_timeout = 10s\nkeepalive_timeout = 1s\n",
+    );
+    let mut s = UnixStream::connect(d.socket()).expect("connect");
+    s.set_read_timeout(Some(Duration::from_secs(20)))
+        .expect("read timeout");
+
+    // `HEAD` throughout, so an answer ends at its blank line and none of it is
+    // left in the socket to be mistaken for the next one.
+    let head = b"HEAD /v1/status HTTP/1.1\r\nHost: c\r\n\r\n";
+    let read_one = |s: &mut UnixStream| {
+        let mut out = Vec::new();
+        while !out.windows(4).any(|w| w == b"\r\n\r\n") {
+            let mut byte = [0u8; 1];
+            match s.read(&mut byte) {
+                Ok(0) => panic!("the daemon closed before answering"),
+                Ok(_) => out.push(byte[0]),
+                Err(e) => panic!("reading an answer: {e}"),
+            }
+        }
+        out
+    };
+
+    s.write_all(head).expect("write");
+    s.flush().expect("flush");
+    read_one(&mut s);
+
+    // Long enough that the daemon is certainly parked in the idle read.
+    std::thread::sleep(Duration::from_millis(400));
+
+    // One write ends that wait and starts a second request in the same breath,
+    // so the read that follows is the first one in its own turn with bytes
+    // already buffered.
+    let mut both = head.to_vec();
+    both.extend_from_slice(b"HEAD /v1/status HTTP/1.1\r\nHost: c\r\n");
+    s.write_all(&both).expect("write");
+    s.flush().expect("flush");
+    read_one(&mut s);
+
+    // Paused for longer than the idle bound and well inside the read bound.
+    std::thread::sleep(Duration::from_millis(2500));
+    s.write_all(b"Connection: close\r\n\r\n").expect("write");
+    s.flush().expect("flush");
+
+    let mut out = Vec::new();
+    s.read_to_end(&mut out).expect("read the last answer");
+    let reply = parse_reply(&out).expect("a last reply");
+    assert_eq!(
+        reply.status, 200,
+        "a slow request after an idle wait was cut off by keepalive_timeout"
+    );
+}
+
+/// `connections.served` sits beside `active` and `max`, which count
+/// connections; counting requests there would make the three numbers describe
+/// two different things.
+#[test]
+fn served_counts_connections_not_requests() {
+    let d = Daemon::start("smoke-counters", "");
+    let served = |d: &Daemon| -> u64 {
+        let text = d.get("/v1/status").text();
+        let at = text.find("\"served\":").expect("a served counter");
+        text[at + 9..]
+            .trim_start()
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|n| n.parse().ok())
+            .expect("a number")
+    };
+
+    let before = served(&d);
+    let mut raw = String::new();
+    for _ in 0..19 {
+        raw.push_str("GET /v1/status HTTP/1.1\r\nHost: c\r\n\r\n");
+    }
+    raw.push_str("GET /v1/status HTTP/1.1\r\nHost: c\r\nConnection: close\r\n\r\n");
+    let replies = parse_replies(&d.raw(raw.as_bytes()).expect("pipelined"));
+    assert_eq!(replies.len(), 20, "twenty answers on one connection");
+    let after = served(&d);
+
+    // Two connections since `before`: the pipelined one and the one that read
+    // `after`. The slack covers the readiness probe the harness leaves behind.
+    assert!(
+        after - before <= 3,
+        "served went up by {} across two connections carrying 21 requests",
+        after - before
+    );
 }
 
 #[test]

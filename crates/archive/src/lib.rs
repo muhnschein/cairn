@@ -341,6 +341,7 @@ impl Archive {
         let lo = zim.url_lower_bound(b'M', b"")?;
         let mut out = Metadata::default();
         let mut position = lo;
+        let mut decoded = None;
         while position < zim.entry_count()
             && out.text.len() + out.binary.len() < limits.max_metadata_entries
         {
@@ -349,7 +350,7 @@ impl Archive {
                 break;
             }
             let name = String::from_utf8_lossy(d.url).into_owned();
-            match self.read_blob_uncached(position, limits) {
+            match read_blob(zim, &mut decoded, position, limits) {
                 Ok(bytes) if bytes.len() <= limits.max_metadata_bytes => {
                     match std::str::from_utf8(&bytes) {
                         Ok(v) if !v.contains('\0') => out.text.push((name, v.to_owned())),
@@ -363,15 +364,9 @@ impl Archive {
         Ok(out)
     }
 
-    /// Read one entry's blob without touching the cache. Startup and metadata only.
+    /// Read one entry's blob without touching the cache. Startup only.
     fn read_blob_uncached(&self, index: u32, limits: &Limits) -> Result<Vec<u8>, LookupError> {
-        let zim = self.zim();
-        let d = zim.dirent(zim.resolve(index)?)?;
-        let Target::Content { cluster, blob } = d.target else {
-            return Err(LookupError::NoSuchEntry);
-        };
-        let c = zim.cluster(cluster, limits.max_cluster_bytes)?;
-        Ok(c.blob(blob)?.to_vec())
+        read_blob(self.zim(), &mut None, index, limits)
     }
 
     fn read_title(&self, limits: &Limits) -> String {
@@ -384,6 +379,37 @@ impl Archive {
             }
             _ => String::new(),
         }
+    }
+}
+
+/// Read one entry's blob, reusing `decoded` when it already holds the cluster.
+///
+/// Nothing here touches the catalog's cluster cache: this is the startup and
+/// `M` namespace path, and a metadata scan has no business evicting the
+/// clusters that are serving content. But libzim packs the whole `M` namespace
+/// into one cluster, so decoding per entry would decompress the same cluster
+/// once for every key — up to `max_metadata_entries` times for one cheap
+/// request. Holding the last one turns that back into a single decode, and it
+/// is dropped when the scan is.
+fn read_blob<'a>(
+    zim: Zim<'a>,
+    decoded: &mut Option<(u32, Cluster<'a>)>,
+    index: u32,
+    limits: &Limits,
+) -> Result<Vec<u8>, LookupError> {
+    let d = zim.dirent(zim.resolve(index)?)?;
+    let Target::Content { cluster, blob } = d.target else {
+        return Err(LookupError::NoSuchEntry);
+    };
+    if !matches!(decoded.as_ref(), Some((at, _)) if *at == cluster) {
+        // Dropped before the next is decoded, so a scan holds one at a time.
+        *decoded = None;
+        *decoded = Some((cluster, zim.cluster(cluster, limits.max_cluster_bytes)?));
+    }
+    match decoded.as_ref() {
+        Some((_, c)) => Ok(c.blob(blob)?.to_vec()),
+        // Unreachable: the branch above filled it or returned.
+        None => Err(LookupError::NoSuchEntry),
     }
 }
 

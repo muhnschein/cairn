@@ -321,14 +321,18 @@ impl Router {
                 .body(Payload::Shared(entry.body.subrange(start, end))),
         };
 
+        // A 416 is a fault document, and `Fault::response` already gave it both
+        // of these. Adding them again would send each header twice, which a
+        // client is entitled to read as two conflicting values.
         if response.status != 416 {
-            response = response.header("Content-Type", token::content_type(&entry.mime));
+            response = response
+                .header("Content-Type", token::content_type(&entry.mime))
+                .header("X-Content-Type-Options", "nosniff");
         }
         response
             .header("Accept-Ranges", "bytes")
             .header("X-Cairn-Archive", uuid)
             .header("X-Cairn-Path", percent::encode_header_value(&entry.path))
-            .header("X-Content-Type-Options", "nosniff")
             .header("Cross-Origin-Resource-Policy", "same-origin")
             .header(
                 "Content-Security-Policy",

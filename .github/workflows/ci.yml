@@ -24,6 +24,12 @@ jobs:
       - run: make fmt
       - run: make lint
       - run: make doc-lint
+      # `make check` runs this; without it here the completion scripts are the
+      # one thing in the tree no job parses. The shells are installed because
+      # the target skips whichever is absent, and a check that skips is not one.
+      - name: Shells
+        run: sudo apt-get update && sudo apt-get install -y zsh fish
+      - run: make completion-lint
 
   test:
     runs-on: ubuntu-latest
